@@ -9,7 +9,7 @@ from tests.test_parser import MOUSER
 def test_mouser_part_number_shape():
     assert MOUSER_PN.match("647-RL81C221MDN1KX")
     assert MOUSER_PN.match("652-CR0603-FX-1001ELF")
-    assert not MOUSER_PN.match("011") and not MOUSER_PN.match("C29") and not MOUSER_PN.match("20631605")
+    assert not MOUSER_PN.match("011") and not MOUSER_PN.match("C29") and not MOUSER_PN.match("12345678")
     assert mpn_from_pn("647-RL81C221MDN1KX") == "RL81C221MDN1KX"
     assert mpn_from_pn("652-CR0603-FX-1001ELF") == "CR0603-FX-1001ELF"      # only the maker prefix is dropped
 
