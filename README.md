@@ -229,7 +229,7 @@ Bricolage Grotesque and IBM Plex Mono (SIL Open Font License 1.1).
 ## Limitations
 
 - Built for DigiKey and Mouser labels. Other suppliers using ECIA labels may parse, but get no enrichment.
-- The Mouser Search API path is written against Mouser's documented response format but is untested without a key.
+- `/api/health` reports `mouser_key` as `unset`, `unchecked`, `ok` or `rejected`. A rejected key (wrong key type, mistyped, or not yet activated) is noticed on the first lookup and not retried; Mouser bags then use DigiKey data.
 - Parts are created in an "Unsorted" category; categorise them in InvenTree.
 - Text recognition (OCR) of printed labels was tried and is not reliable enough to trust: it confuses `I`/`1`, `S`/`5`, `C`/`0`. Type the part number instead.
 - Live scanning of small DataMatrix codes depends on the camera; the photo button is the fallback.

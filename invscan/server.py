@@ -176,7 +176,7 @@ def _inventree_barcode(raw: str) -> dict | None:
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "digikey": dk().enabled, "mouser": mouser().enabled}
+    return {"ok": True, "digikey": dk().enabled, "mouser": mouser().enabled, "mouser_key": mouser().status}
 
 
 @app.get("/api/home", dependencies=[Depends(auth)])

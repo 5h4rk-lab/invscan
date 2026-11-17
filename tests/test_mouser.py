@@ -69,3 +69,33 @@ def test_server_asks_for_the_part_number_when_a_mouser_scan_has_none(monkeypatch
     monkeypatch.setenv("INVSCAN_ALLOW_NO_PIN", "1"); monkeypatch.delenv("SCAN_PIN", raising=False)
     r = TestClient(server.app).post("/api/scan", json={"raw": MOUSER, "location_id": 5})
     assert r.status_code == 200 and r.json()["kind"] == "need_pn" and r.json()["manufacturer"] == "Nichicon"
+
+
+class _Resp:
+    def __init__(self, body): self._b = body
+    def raise_for_status(self): pass
+    def json(self): return self._b
+
+
+def test_a_rejected_mouser_key_is_noticed_once_and_not_retried(monkeypatch):
+    import invscan.mouser as mz
+    calls = []
+    def fake_post(url, **kw):
+        calls.append(url)
+        return _Resp({"Errors": [{"Code": "Invalid", "Message": "Invalid unique identifier.", "PropertyName": "API Key"}], "SearchResults": None})
+    monkeypatch.setattr(mz.requests, "post", fake_post)
+    m = mz.Mouser(key="not-a-real-key")
+    assert m.enabled and m.status == "unchecked"
+    assert m.lookup("647-RL81C221MDN1KX") is None          # falls back to DigiKey data instead of failing
+    assert m.status == "rejected" and not m.enabled        # remembered
+    assert m.lookup("647-ABC") is None and len(calls) == 1  # no second call for a key Mouser already refused
+
+
+def test_a_working_mouser_key_is_marked_ok(monkeypatch):
+    import invscan.mouser as mz
+    good = {"Errors": [], "SearchResults": {"Parts": [{"MouserPartNumber": "647-X", "ManufacturerPartNumber": "X", "Manufacturer": "Acme", "Description": "d"}]}}
+    monkeypatch.setattr(mz.requests, "post", lambda url, **kw: _Resp(good))
+    m = mz.Mouser(key="k")
+    p = m.lookup("647-X")
+    assert p["ManufacturerProductNumber"] == "X" and m.status == "ok" and m.enabled
+    assert mz.Mouser(key=None).status == "unset"
