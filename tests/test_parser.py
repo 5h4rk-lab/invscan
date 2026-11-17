@@ -83,3 +83,27 @@ def test_digikey_pn_in_customer_field_is_used_as_sku():
 def test_ordinary_customer_ref_is_not_mistaken_for_sku():
     assert parse_scan(NEW).supplier_sku == "3SMAJ5939B-TPMSCT-ND"
     assert parse_scan(REAL).supplier_sku is None and parse_scan(REAL).customer_ref == "BENCH1"
+
+
+# Mouser label (modelled on a real one; order numbers made up). Literal '>' before '[)>', no RS, no MPN in the code.
+MOUSER = f">[)>06{GS}K77777777{GS}14K011{GS}PC29{GS}Q10{GS}11K88888888{GS}4LCN{GS}1VNichicon"
+
+
+def test_mouser_label_fields():
+    s = parse_scan(MOUSER)
+    assert s.vendor == "mouser"
+    assert s.mpn == ""                       # Mouser's square code has no part number; it comes from the P/N barcode
+    assert (s.qty, s.manufacturer, s.country) == (10, "Nichicon", "CN")
+    assert (s.po, s.line_item, s.invoice) == ("77777777", "011", "88888888")   # invoice is 11K on Mouser labels
+    assert s.customer_ref == "C29"
+
+
+def test_mouser_with_printed_separators():
+    # some decoders print control characters as <GS>
+    s = parse_scan(">[)>06<GS>K77777777<GS>14K011<GS>PC29<GS>Q10<GS>11K88888888<GS>4LCN<GS>1VNichicon")
+    assert s.vendor == "mouser" and s.qty == 10 and s.manufacturer == "Nichicon"
+
+
+def test_digikey_labels_are_not_mistaken_for_mouser():
+    assert parse_scan(REAL).vendor == "digikey" or parse_scan(REAL).vendor == ""
+    assert parse_scan(NEW).vendor == "digikey"

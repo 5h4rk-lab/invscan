@@ -5,24 +5,44 @@ from tests.test_parser import REAL
 
 class Fake:
     def __init__(self):
-        self.parts, self.stock, self.cats = [], [], []
+        self.parts, self.stock, self.cats, self.stores = [], [], [], {}
+
+    def _rows(self, path):
+        named = {"part/": self.parts, "stock/": self.stock, "part/category/": self.cats}
+        return named[path] if path in named else self.stores.setdefault(path, [])
 
     def list(self, path, **q):
         if path == "stock/":
             return [s for s in self.stock if s["batch"] == q["batch"]]
         if path == "part/":
             return [p for p in self.parts if q["search"].lower() in p["name"].lower()]
-        if path in ("parameter/", "parameter/template/"):
-            return []
         if path == "part/category/":
             return self.cats
-        return []
+        if path in ("parameter/", "parameter/template/"):
+            return []
+        rows = self._rows(path)
+        for k, v in q.items():
+            if k in ("limit", "search"):
+                continue
+            rows = [r for r in rows if r.get(k) == v or k not in r]
+        if "search" in q:
+            rows = [r for r in rows if q["search"].lower() in str(r.get("name", "")).lower()]
+        return rows
 
     def post(self, path, **b):
-        store = {"parameter/": [], "parameter/template/": [], "part/": self.parts, "stock/": self.stock, "part/category/": self.cats}[path]
+        store = self._rows(path)
         row = {**b, "pk": len(store) + 1, "parent": None}
         store.append(row)
         return row
+
+    def get(self, path, **_):
+        return {}
+
+    def patch(self, path, **b):
+        return {}
+
+    def patch_file(self, *a, **k):
+        return {}
 
 
 def test_new_part_then_duplicate_then_existing_part():
@@ -46,7 +66,7 @@ def test_missing_qty_is_error():
 
 def test_dk_lookup_failure_does_not_block_ingest():
     class Down:
-        def lookup(self, mpn, sku=None):
+        def lookup(self, mpn, sku=None, manufacturer=None):
             return None
     assert ingest(Fake(), parse_scan(REAL), 1, dk=Down()).status == "created"
 
@@ -80,7 +100,7 @@ class FakeDK:
         self.product, self.ambiguous = product, ambiguous or []
         self.asked = []
 
-    def lookup(self, mpn, sku=None):
+    def lookup(self, mpn, sku=None, manufacturer=None):
         self.asked.append((mpn, sku))
         return self.product
 
@@ -185,7 +205,7 @@ def test_manual_digikey_pn_is_resolved_to_the_mpn():
     class DK:
         ambiguous = []
         calls = 0
-        def lookup(self, mpn, sku=None):
+        def lookup(self, mpn, sku=None, manufacturer=None):
             self.calls += 1
             # first call resolves the DigiKey PN; later calls (enrichment) find nothing so the fake store is enough
             return {"ManufacturerProductNumber": "REAL-MPN"} if self.calls == 1 else None

@@ -31,7 +31,7 @@ class DigiKey:
         return {"Authorization": f"Bearer {self._token()}", "X-DIGIKEY-Client-Id": self.cid,
                 "X-DIGIKEY-Locale-Site": "US", "X-DIGIKEY-Locale-Language": "en", "X-DIGIKEY-Locale-Currency": "USD"}
 
-    def lookup(self, mpn: str, sku: str | None = None) -> dict | None:
+    def lookup(self, mpn: str, sku: str | None = None, manufacturer: str | None = None) -> dict | None:
         """The DigiKey product for a scan, or None. Never raises on network trouble.
 
         An MPN alone is ambiguous (different makers reuse short numbers like '4939'), so a DigiKey
@@ -51,10 +51,26 @@ class DigiKey:
             r.raise_for_status()
         except requests.RequestException:
             return None
-        exact = [p for p in r.json().get("Products", []) if p["ManufacturerProductNumber"].lower() == mpn.lower()]
-        if sku:
-            exact = [p for p in exact if any(v["DigiKeyProductNumber"].lower() == sku.lower() for v in p.get("ProductVariations", []))] or exact
-        if len({p["Manufacturer"]["Name"] for p in exact}) > 1 and not sku:
-            self.ambiguous = [f'{p["Manufacturer"]["Name"]}: {p["Description"]["ProductDescription"]}' for p in exact]
-            return None
-        return exact[0] if exact else None
+        exact = choose_product(r.json().get("Products", []), mpn, sku, manufacturer, self)
+        return exact
+
+
+def _norm(s: str) -> str:
+    return "".join(c for c in (s or "").lower() if c.isalnum())
+
+
+def choose_product(products: list[dict], mpn: str, sku: str | None, manufacturer: str | None, holder=None) -> dict | None:
+    """Pick the DigiKey product for an exact MPN. Several makers can share an MPN, so a DigiKey PN or a manufacturer
+    name (Mouser labels carry one) decides between them; with neither, an ambiguous MPN is not guessed."""
+    exact = [p for p in products if p["ManufacturerProductNumber"].lower() == mpn.lower()]
+    if sku:
+        exact = [p for p in exact if any(v["DigiKeyProductNumber"].lower() == sku.lower() for v in p.get("ProductVariations", []))] or exact
+    if manufacturer:
+        want = _norm(manufacturer)
+        # "Adafruit" matches "Adafruit Industries LLC"; "Texas Instruments" matches "Texas Instruments"
+        exact = [p for p in exact if want and (want in _norm(p["Manufacturer"]["Name"]) or _norm(p["Manufacturer"]["Name"]) in want)]
+    if len({p["Manufacturer"]["Name"] for p in exact}) > 1 and not sku:
+        if holder is not None:
+            holder.ambiguous = [f'{p["Manufacturer"]["Name"]}: {p["Description"]["ProductDescription"]}' for p in exact]
+        return None
+    return exact[0] if exact else None

@@ -1,4 +1,4 @@
-"""Fill an InvenTree part with DigiKey data: description, manufacturer, SKUs, image, links."""
+"""Fill an InvenTree part with supplier data (DigiKey or Mouser): description, manufacturer, SKUs, image, links."""
 import requests
 
 from .params import set_digikey_params
@@ -24,8 +24,30 @@ def pick_description(product: dict) -> str:
     return (long if len(short) >= 32 and long else short)[:250]
 
 
-def enrich_part(inv, part_id: int, product: dict) -> dict:
-    """Returns {'supplier_parts': {sku: pk}}. Safe to call repeatedly."""
+def ensure_manufacturer_part(inv, part_id: int, manufacturer: str, mpn: str) -> int:
+    """The manufacturer part (company + MPN) for this part, created if missing."""
+    mfr = _company(inv, manufacturer, is_manufacturer=True)
+    mp = inv.list("company/part/manufacturer/", part=part_id, MPN=mpn)
+    return mp[0]["pk"] if mp else inv.post("company/part/manufacturer/", part=part_id, manufacturer=mfr, MPN=mpn)["pk"]
+
+
+def add_supplier_part(inv, part_id: int, supplier_name: str, sku: str, link: str = "", description: str = "",
+                      manufacturer_part: int | None = None) -> int:
+    """A supplier part (supplier + SKU) for this part, created if missing. Returns its id."""
+    sp = inv.list("company/part/", part=part_id, SKU=sku)
+    if sp:
+        return sp[0]["pk"]
+    body = dict(part=part_id, supplier=_company(inv, supplier_name, is_supplier=True), SKU=sku, link=link, description=description)
+    if manufacturer_part:
+        body["manufacturer_part"] = manufacturer_part
+    return inv.post("company/part/", **body)["pk"]
+
+
+def enrich_part(inv, part_id: int, product: dict, supplier: str = "Digi-Key", variations: bool = True) -> dict:
+    """Returns {'supplier_parts': {sku: pk}, 'manufacturer_part': pk}. Safe to call repeatedly.
+
+    `product` has DigiKey's shape (Mouser results are converted to it). With variations=False no supplier
+    parts are created from it (used when its data comes from a different supplier than the bag)."""
     part = inv.get(f"part/{part_id}/")
     mpn = product["ManufacturerProductNumber"]
     desc = pick_description(product)
@@ -50,17 +72,12 @@ def enrich_part(inv, part_id: int, product: dict) -> dict:
         except (requests.RequestException, RuntimeError):
             pass  # picture is a nicety
 
-    mfr = _company(inv, product["Manufacturer"]["Name"], is_manufacturer=True)
-    mp = inv.list("company/part/manufacturer/", part=part_id, MPN=mpn)
-    mp_id = mp[0]["pk"] if mp else inv.post("company/part/manufacturer/", part=part_id, manufacturer=mfr, MPN=mpn)["pk"]
+    mp_id = ensure_manufacturer_part(inv, part_id, product["Manufacturer"]["Name"], mpn)
 
-    supplier = _company(inv, "Digi-Key", is_supplier=True)
     skus = {}
-    for v in product.get("ProductVariations", []):
+    for v in (product.get("ProductVariations", []) if variations else []):
         sku = v["DigiKeyProductNumber"]
-        sp = inv.list("company/part/", part=part_id, SKU=sku)
-        skus[sku] = sp[0]["pk"] if sp else inv.post(
-            "company/part/", part=part_id, supplier=supplier, SKU=sku, manufacturer_part=mp_id,
-            link=product.get("ProductUrl", ""), description=v.get("PackageType", {}).get("Name", ""))["pk"]
+        skus[sku] = add_supplier_part(inv, part_id, supplier, sku, product.get("ProductUrl", ""),
+                                      v.get("PackageType", {}).get("Name", ""), mp_id)
     set_digikey_params(inv, part_id, product)
-    return {"supplier_parts": skus}
+    return {"supplier_parts": skus, "manufacturer_part": mp_id}

@@ -1,8 +1,8 @@
-"""Turn a parsed DigiKey scan into InvenTree stock in a given location."""
+"""Turn a parsed DigiKey or Mouser scan into InvenTree stock in a given location."""
 from dataclasses import dataclass
 from datetime import date
 
-from .enrich import enrich_part
+from .enrich import add_supplier_part, enrich_part, ensure_manufacturer_part
 from .locations import ensure_path
 from .notes import set_note
 from .params import mark_scanned
@@ -21,12 +21,17 @@ class Result:
 
 
 def batch_key(scan: Scan) -> str:
-    """One DigiKey bag = one (sales order, load id). Used to refuse double scans.
+    """One bag = one purchase line. Used to refuse double scans; empty when the label cannot tell bags apart.
 
-    Newer labels print a placeholder load id (all 9s) shared by every bag in the order, so
-    for those the DigiKey part/MID id (12Z) is added to keep bags of different parts apart."""
+    DigiKey: (sales order, load id). Newer labels print a placeholder load id (all 9s) shared by every bag in the
+    order, so the DigiKey part/MID id (12Z) is added to keep bags of different parts apart.
+    Mouser: (invoice, line item, PO)."""
+    if scan.vendor == "mouser":
+        return f"MO-{scan.invoice}-{scan.line_item}-{scan.po}" if scan.invoice and scan.line_item else ""
+    if not (scan.sales_order and scan.load_id):
+        return ""
     key = f"DK-{scan.sales_order}-{scan.load_id}"
-    if scan.load_id and set(scan.load_id) == {"9"}:
+    if set(scan.load_id) == {"9"}:
         key += f"-{scan.digikey_part_id or scan.mpn}"
     return key
 
@@ -38,13 +43,13 @@ def find_part(inv, scan: Scan, product: dict | None):
         if sp:
             return sp[0]["part"], sp[0]["pk"]
     mp = inv.list("company/part/manufacturer/", MPN=scan.mpn)
-    if product:  # same MPN from a different maker is a different part
-        want = product["Manufacturer"]["Name"].lower()
-        mp = [m for m in mp if (m.get("manufacturer_detail") or {}).get("name", "").lower() == want
-              or str(m.get("manufacturer")) == str(_company_id(inv, want))]
+    maker = (product["Manufacturer"]["Name"] if product else scan.manufacturer).lower()
+    if maker:  # same MPN from a different maker is a different part
+        mp = [m for m in mp if (m.get("manufacturer_detail") or {}).get("name", "").lower() == maker
+              or str(m.get("manufacturer")) == str(_company_id(inv, maker))]
     if mp:
         return mp[0]["part"], None
-    if not product:
+    if not product and not maker:
         for p in inv.list("part/", search=scan.mpn):
             if scan.mpn.lower() in (p["name"].lower(), (p.get("IPN") or "").lower()):
                 return p["pk"], None
@@ -65,48 +70,66 @@ def unsorted_category(inv) -> int:
 
 
 def ingest(inv, scan: Scan, location_id: int | None, qty: int | None = None, dk=None, note: str | None = None,
-           description: str | None = None) -> Result:
+           description: str | None = None, mouser=None) -> Result:
     if not location_id and not (note or "").strip():
         return Result("error", message="no bin and no note: say where it went")
     qty = qty if qty is not None else scan.qty
     if not qty:
         return Result("error", message="no quantity in scan; supply qty")
     key = batch_key(scan)
-    if scan.sales_order and scan.load_id:
+    if key:
         dup = inv.list("stock/", batch=key)
         if dup:
             return Result("duplicate", dup[0]["part"], dup[0]["pk"], message=f"already scanned as stock #{dup[0]['pk']}")
 
-    product = dk.lookup(scan.mpn, scan.supplier_sku) if dk else None
+    mouser_label = scan.vendor == "mouser"
+    product, from_mouser = None, False
+    if mouser_label and mouser is not None and getattr(mouser, "enabled", False):
+        product = mouser.lookup(scan.supplier_sku or "")  # Mouser's own details for its part number
+        if product:
+            from_mouser = True
+            scan.mpn = product["ManufacturerProductNumber"]
+    if product is None and dk:
+        # a Mouser PN means nothing to DigiKey, but the manufacturer name on the label settles shared MPNs
+        product = dk.lookup(scan.mpn, None if mouser_label else scan.supplier_sku, scan.manufacturer or None)
     part_id, supplier_part = find_part(inv, scan, product)
     new_part = part_id is None
     name = scan.mpn
-    if new_part and product and inv.list("part/", search=scan.mpn) and any(
-            p["name"].lower() == scan.mpn.lower() for p in inv.list("part/", search=scan.mpn)):
-        name = f"{scan.mpn} ({product['Manufacturer']['Name']})"  # same MPN, different maker
+    maker = product["Manufacturer"]["Name"] if product else scan.manufacturer
+    if new_part and maker and any(p["name"].lower() == scan.mpn.lower() for p in inv.list("part/", search=scan.mpn)):
+        name = f"{scan.mpn} ({maker})"  # same MPN, different maker
     if new_part:
+        origin = "Mouser" if mouser_label else "DigiKey"
         part_id = inv.post(
             "part/",
             name=name, IPN=name,
-            description=description or ("Imported from DigiKey scan" if scan.sales_order else "Added by hand"),
+            description=description or (f"Imported from {origin} scan" if (scan.sales_order or mouser_label) else "Added by hand"),
             category=unsorted_category(inv), component=True, purchaseable=True,
         )["pk"]
 
+    mp_id = None
     if product:
-        skus = enrich_part(inv, part_id, product)["supplier_parts"]
+        res = enrich_part(inv, part_id, product, supplier="Mouser" if from_mouser else "Digi-Key",
+                          variations=not mouser_label or from_mouser)
+        skus, mp_id = res["supplier_parts"], res["manufacturer_part"]
         if scan.supplier_sku in skus:
             supplier_part = skus[scan.supplier_sku]
-        elif len(skus) == 1:
+        elif len(skus) == 1 and not mouser_label:
             supplier_part = next(iter(skus.values()))
+    if mouser_label and scan.supplier_sku:
+        if not mp_id and scan.manufacturer:
+            mp_id = ensure_manufacturer_part(inv, part_id, scan.manufacturer, scan.mpn)
+        supplier_part = add_supplier_part(inv, part_id, "Mouser", scan.supplier_sku, "", "", mp_id)
 
     if not location_id:  # no bin label available: park it as 'Unplaced' with the note saying where
         location_id = ensure_path(inv, "Unplaced")
 
     body = dict(
         part=part_id, quantity=qty, location=location_id,
-        batch=key if scan.sales_order and scan.load_id else "",
+        batch=key,
         notes=set_note(" ".join(x for x in (
-            f"DigiKey SO {scan.sales_order} invoice {scan.invoice} origin {scan.country}" if scan.sales_order else "",
+            f"Mouser PO {scan.po} invoice {scan.invoice} line {scan.line_item} origin {scan.country}" if mouser_label else "",
+            f"DigiKey SO {scan.sales_order} invoice {scan.invoice} origin {scan.country}" if scan.sales_order and not mouser_label else "",
             f"lot {scan.lot_code}" if scan.lot_code else "",
             f"date code {scan.date_code}" if scan.date_code else "",
             f"ref {scan.customer_ref}" if scan.customer_ref else "") if x), note),
@@ -121,7 +144,7 @@ def ingest(inv, scan: Scan, location_id: int | None, qty: int | None = None, dk=
     except RuntimeError:
         pass  # bookkeeping must never fail a scan
     msg = ""
-    if dk and not product and getattr(dk, "ambiguous", None):
+    if dk and not product and not mouser_label and getattr(dk, "ambiguous", None):
         msg = "Several makers use this part number and the label has no DigiKey PN, so details were not filled in."
     return Result("created", part_id, item["pk"], new_part, msg)
 

@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from .client import InvenTree
 from .digikey import DigiKey
+from .mouser import MOUSER_PN, Mouser, mpn_from_pn
 from .ingest import add_manual, ingest
 from .locations import LABEL_PREFIX, add_room, ensure_path, has_room, parse_label, place_path
 from .notes import get_note, set_note
@@ -23,13 +24,19 @@ PUBLIC = ROOT / "public"
 app = FastAPI(title="invscan")
 if PUBLIC.is_dir():  # on Vercel the CDN serves public/ and it is not bundled into the function
     app.mount("/static", StaticFiles(directory=PUBLIC), name="static")
-_inv, _dk = None, None
+_inv, _dk, _mouser = None, None, None
 
 
 def inv() -> InvenTree:
     global _inv
     _inv = _inv or InvenTree()
     return _inv
+
+
+def mouser() -> Mouser:
+    global _mouser
+    _mouser = _mouser or Mouser()
+    return _mouser
 
 
 def dk() -> DigiKey:
@@ -71,6 +78,7 @@ class ScanIn(BaseModel):
     location_id: int | None = None
     qty: int | None = None
     note: str | None = None
+    mouser_pn: str | None = None  # Mouser's part number, read from the label's P/N barcode
 
 
 class PathIn(BaseModel):
@@ -150,7 +158,7 @@ def _inventree_barcode(raw: str) -> dict | None:
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "digikey": dk().enabled}
+    return {"ok": True, "digikey": dk().enabled, "mouser": mouser().enabled}
 
 
 @app.get("/api/home", dependencies=[Depends(auth)])
@@ -211,7 +219,12 @@ def scan(body: ScanIn):
         if hit:
             return hit
         raise HTTPException(422, str(e))
-    r = ingest(inv(), s, body.location_id, body.qty, dk(), body.note)
+    if s.vendor == "mouser":
+        pn = (body.mouser_pn or "").strip()
+        if not MOUSER_PN.match(pn):  # the square code has no part number; it is in the long P/N barcode
+            return {"kind": "need_pn", "vendor": "mouser", "qty": s.qty, "manufacturer": s.manufacturer}
+        s.supplier_sku, s.mpn = pn, mpn_from_pn(pn)
+    r = ingest(inv(), s, body.location_id, body.qty, dk(), body.note, mouser=mouser())
     return _bag_response(r, s.mpn, body.qty or s.qty)
 
 

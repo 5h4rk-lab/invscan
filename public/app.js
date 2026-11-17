@@ -212,10 +212,11 @@ function showResult(kind, title, r, extra = "") {
   const f = $("#finder"); f.classList.remove("f-ok", "f-dup", "f-err"); f.classList.add("f-" + kind); setTimeout(() => f.classList.remove("f-" + kind), 1200);
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
-async function sendBag(raw, note) {
+async function sendBag(raw, note, extra = {}) {
   state.busy = true;
   try {
-    const r = await api("/api/scan", { raw, location_id: state.bin?.id ?? null, qty: +$("#qty").value || null, note: note || null });
+    const r = await api("/api/scan", { raw, location_id: state.bin?.id ?? null, qty: +$("#qty").value || null, note: note || null, mouser_pn: extra.mouser_pn || null });
+    if (r.kind === "need_pn") { state.busy = false; return mouserSheet(raw, note); }
     if (r.kind === "part") { location.hash = "#part/" + r.part_id; }
     else if (r.kind === "bin") { setBin(r); card("", `<div>Bin set</div>${tag(r.path)}`); toast("Bin set"); }
     else if (r.status === "created") {
@@ -228,13 +229,20 @@ async function sendBag(raw, note) {
   } catch (e) { showResult("err", "Not added", { mpn: "" }, esc(e.message)); card("err", `<div class="sm">${esc(e.message)}</div>`); }
   state.busy = false;
 }
-function handleCode(text) {
+function mouserSheet(raw, note) {
+  openSheet(`<h3>Mouser part number</h3>
+    <p class="muted sm">Mouser's square code does not include the part number. Type the one printed after <b>P/N:</b> on the label, for example <span class="mono">647-RL81C221MDN1KX</span>. In a photo, include the long P/N barcode and it is read for you.</p>
+    <input class="field mono" name="pn" placeholder="647-RL81C221MDN1KX" required autocomplete="off" autocapitalize="characters" autofocus>
+    <button class="btn primary" type="submit">Add to inventory</button>`,
+    f => sendBag(raw, note, { mouser_pn: f.get("pn").trim() }));
+}
+function handleCode(text, extra = {}) {
   const now = Date.now();
   if (state.busy || state.paused) return;
   state.last = text; state.lastT = now;
   $("#finder").classList.add("hit"); setTimeout(() => $("#finder").classList.remove("hit"), 400);
   const isBag = /^\[\)>|\x1d|\u241d/.test(text);
-  if (!isBag || state.bin) return sendBag(text);
+  if (!isBag || state.bin) return sendBag(text, null, extra);
   // bag without a bin: ask where it is going so it can be found later
   const mpn = (text.match(/1P([^\x1d␝]+)/) || [])[1] || "this bag";
   openSheet(`<h3>Where is it going?</h3>
@@ -242,13 +250,28 @@ function handleCode(text) {
     <textarea class="field" name="note" placeholder="Blue box under the desk, left side" required autofocus></textarea>
     <button class="btn primary" type="submit">Save with note</button>
     <button class="btn" type="button" id="setbin">Set a bin instead</button>`,
-    f => sendBag(text, f.get("note").trim()));
+    f => sendBag(text, f.get("note").trim(), extra));
   $("#setbin").onclick = () => { $("#sheet").close(); setTimeout(binSheet, 60); };
 }
+// A Mouser square code has no part number: it is in the long "P/N:" barcode on the same label.
+const isMouserCode = s => /(\x1d|<GS>|\u241d)14K\d/.test(s) && !/(\x1d|<GS>|\u241d)1P/.test(s);
 async function readImage(src, w, h, draw) {
   const c = document.createElement("canvas"); c.width = w; c.height = h; const x = c.getContext("2d", { willReadFrequently: true });
-  draw(x); const rs = await ZXingWASM.readBarcodes(x.getImageData(0, 0, w, h), { formats: ["DataMatrix", "QRCode"], tryHarder: true, maxNumberOfSymbols: 1 });
-  return rs[0]?.text;
+  draw(x); const data = x.getImageData(0, 0, w, h);
+  const rs = await ZXingWASM.readBarcodes(data, { formats: ["DataMatrix", "QRCode"], tryHarder: true, maxNumberOfSymbols: 3 });
+  const main = rs.find(r => r.format === "DataMatrix") || rs[0];
+  if (!main) return null;
+  const out = { text: main.text };
+  if (isMouserCode(main.text)) {
+    out.needsPn = true;
+    const lin = await ZXingWASM.readBarcodes(data, { formats: ["Code128"], tryHarder: true, maxNumberOfSymbols: 16 });
+    const mid = p => ({ x: (p.topLeft.x + p.bottomRight.x) / 2, y: (p.topLeft.y + p.bottomRight.y) / 2 }), me = mid(main.position);
+    // other bags in the photo have P/N barcodes too, so take the one closest to this label's square code
+    const best = lin.filter(r => /^\d{2,4}-\S+$/.test(r.text))
+      .map(r => ({ r, d: Math.hypot(mid(r.position).x - me.x, mid(r.position).y - me.y) })).sort((a, b) => a.d - b.d)[0];
+    if (best) out.mouser_pn = best.r.text;
+  }
+  return out;
 }
 async function startCam() {
   if (state.cam) return;
@@ -264,11 +287,13 @@ async function startCam() {
       try {
         const t = await readImage(v, v.videoWidth, v.videoHeight, x => x.drawImage(v, 0, 0));
         frames++; $("#st").textContent = `${v.videoWidth}x${v.videoHeight} - frame ${frames}`;
-        if (t) {
+        if (t && t.needsPn && !t.mouser_pn) {
+          $("#st").textContent = "Mouser label: show the long P/N barcode too";
+        } else if (t) {
           // same code still in view: wait until it has been out of frame ~2.5s before reacting again
-          const seen = Date.now(), same = t === state.last && seen - state.lastSeen < 2500;
+          const seen = Date.now(), same = t.text === state.last && seen - state.lastSeen < 2500;
           state.lastSeen = seen;
-          if (!same) handleCode(t);
+          if (!same) handleCode(t.text, { mouser_pn: t.mouser_pn });
         }
       } catch { /* keep trying */ }
     }
@@ -283,7 +308,7 @@ $("#photo").onchange = async e => {
     const bm = await createImageBitmap(f), k = Math.min(1, 3000 / Math.max(bm.width, bm.height)), w = Math.round(bm.width * k), h = Math.round(bm.height * k);
     const t = await readImage(bm, w, h, x => x.drawImage(bm, 0, 0, w, h));
     state.last = "";
-    if (t) handleCode(t); else showResult("err", "No code found in the photo", { mpn: "" }, `${bm.width}x${bm.height}. Move closer, keep the label flat, and avoid glare.`);
+    if (t) handleCode(t.text, { mouser_pn: t.mouser_pn }); else showResult("err", "No code found in the photo", { mpn: "" }, `${bm.width}x${bm.height}. Move closer, keep the label flat, and avoid glare.`);
   } catch (x) { card("err", `<div class="sm">${esc(x.message)}</div>`); }
   e.target.value = "";
 };

@@ -1,6 +1,6 @@
 # invscan
 
-Scan the DataMatrix on a DigiKey parts bag with your phone and it lands in [InvenTree](https://inventree.org):
+Scan the DataMatrix on a DigiKey or Mouser parts bag with your phone and it lands in [InvenTree](https://inventree.org):
 the part is created and filled in from DigiKey (photo, description, datasheet, specs), the stock is added to the
 bin you are standing at, and later you can search for it by name, value, or a note you wrote and see where it is.
 
@@ -14,7 +14,7 @@ small bags into drawers.
 
 ## Features
 
-- **Scan a bag, get stock.** Reads ECIA / ISO 15434 labels (old and new DigiKey styles). Creates the part, a
+- **Scan a bag, get stock.** Reads ECIA / ISO 15434 labels: DigiKey (old and new styles) and Mouser. Creates the part, a
   manufacturer part, DigiKey supplier parts, and a stock item with lot, date code and order in its notes.
 - **DigiKey enrichment** (optional): description, photo, datasheet link, manufacturer, every packaging variant as a
   supplier part, and the specs as searchable InvenTree parameters. A "Last Scanned" date is kept on each part.
@@ -134,6 +134,19 @@ Drawer and Bin or box; the path becomes the location tree, so the label shows ea
 (hen, or a per-owner picture) sits top-right. Adjust the HTML for other media sizes (the template reads
 InvenTree's `width` and `height`).
 
+## Mouser labels
+
+Mouser's square code carries the purchase order, line item, your customer part number, quantity, invoice, country
+of origin and the manufacturer name, but **not the part number**. That is only in the long `P/N:` barcode on the
+same label (for example `647-RL81C221MDN1KX`; the manufacturer part number is what follows the first hyphen). So
+invscan reads both: in a photo (or the live camera) it pairs the square code with the closest `P/N:` barcode, and
+if that barcode is not in view it asks you to type the number. The manufacturer name on the label is used to pick
+the right product when several makers share a part number.
+
+Details (description, photo, specs) come from Mouser's Search API when `MOUSER_API_KEY` is set (get a key from the
+API section of your Mouser account), otherwise from DigiKey by manufacturer part number. Either way a Mouser supplier
+part with Mouser's own SKU is created. A bag is refused as a duplicate by (invoice, line item, PO).
+
 ## What is on a DigiKey label
 
 The 2D code is a DataMatrix in ISO 15434 format 06, fields separated by GS (0x1D):
@@ -160,6 +173,7 @@ the DigiKey part number to identify a product and will not guess when the label 
 | `INVENTREE_TOKEN` | yes | API token (stays on the server) |
 | `SCAN_PIN` | yes | PIN for the web page |
 | `DIGIKEY_CLIENT_ID`, `DIGIKEY_CLIENT_SECRET` | no | Enables DigiKey enrichment |
+| `MOUSER_API_KEY` | no | Mouser Search API key: Mouser's own details for Mouser bags |
 | `INVSCAN_ALLOW_NO_PIN=1` | no | Run without a PIN (local development only) |
 
 ## Security notes
@@ -190,7 +204,8 @@ Bricolage Grotesque and IBM Plex Mono (SIL Open Font License 1.1).
 
 ## Limitations
 
-- Built for DigiKey labels. Other suppliers using ECIA labels will parse, but enrichment is DigiKey only.
+- Built for DigiKey and Mouser labels. Other suppliers using ECIA labels may parse, but get no enrichment.
+- The Mouser Search API path is written against Mouser's documented response format but is untested without a key.
 - Parts are created in an "Unsorted" category; categorise them in InvenTree.
 - Live scanning of small DataMatrix codes depends on the camera; the photo button is the fallback.
 
