@@ -28,9 +28,9 @@ const CHECK = '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
 function toast(t) { const d = document.createElement("div"); d.className = "toast"; d.textContent = t; document.body.append(d); setTimeout(() => d.remove(), 2400); }
 
 /* ---------- sheet ---------- */
-function openSheet(html, onSubmit, onCancel) {
+function openSheet(html, onSubmit, onCancel, cancelText = "Cancel") {
   const d = $("#sheet"), f = $("#sheetForm");
-  f.innerHTML = html + `<button class="btn quiet" type="button" data-x>Cancel</button>`;
+  f.innerHTML = html + `<button class="btn quiet" type="button" data-x>${cancelText}</button>`;
   let done = false;
   f.onsubmit = async e => { e.preventDefault(); if (done) return; const fd = new FormData(f); done = true; d.close(); await onSubmit?.(fd); };
   f.querySelector("[data-x]").onclick = () => d.close();
@@ -61,12 +61,41 @@ document.addEventListener("click", e => {
   qtySheet(+b.dataset.id, b.dataset.name, b.dataset.val, b.dataset.after ? r => { b.textContent = r.qty; b.dataset.val = r.qty; } : null);
 });
 
+/* ---------- printing ---------- */
+async function printSheet(model, ids, title) {
+  let info;
+  try { info = await api("/api/printing"); } catch (e) { toast(e.message); return; }
+  const tpls = info.templates[model] || [], saved = JSON.parse(localStorage.printPrefs || "{}");
+  if (!tpls.length) { toast("InvenTree has no enabled label template for this. Add one in InvenTree."); return; }
+  const up = info.printers.filter(p => p.ok), down = info.printers.filter(p => !p.ok);
+  const outDefault = up.find(p => p.id === saved.machine)?.id || up[0]?.id || "pdf";
+  const tplDefault = tpls.find(x => x.id === saved[model])?.id || (tpls.find(x => x.name.includes("QR + Text")) || tpls[0]).id;
+  openSheet(`<h3>Print label</h3><p class="muted sm">${esc(title)}</p>
+    <label>Label<select class="field" name="template">${tpls.map(x => `<option value="${x.id}" ${x.id === tplDefault ? "selected" : ""}>${esc(x.name)} (${esc(x.size)})</option>`).join("")}</select></label>
+    <label>Send to<select class="field" name="out">${up.map(p => `<option value="${esc(p.id)}" ${p.id === outDefault ? "selected" : ""}>${esc(p.name)}</option>`).join("")}<option value="pdf" ${outDefault === "pdf" ? "selected" : ""}>PDF to open or AirPrint</option></select></label>
+    ${down.length ? `<div class="note">${down.map(p => `${esc(p.name)} is not available in InvenTree: ${esc(p.error || "inactive")}.`).join("<br>")}</div>` : ""}
+    <button class="btn primary" type="submit">Print</button>`,
+    async f => {
+      const out = f.get("out"), template = +f.get("template");
+      localStorage.printPrefs = JSON.stringify({ ...saved, [model]: template, machine: out === "pdf" ? saved.machine : out });
+      toast("Preparing label...");
+      try {
+        const r = await api("/api/print", { model, ids, template, machine: out === "pdf" ? null : out });
+        if (!r.ok) { openSheet(`<h3>Could not print</h3><p class="sm">${esc(r.message)}</p>`, null, null, "Close"); return; }
+        if (r.mode === "printer") toast(r.message);
+        else openSheet(`<h3>Label ready</h3>${r.message && r.message !== "PDF ready." ? `<p class="note">${esc(r.message)}</p>` : ""}
+          <a class="btn primary" href="${esc(r.url)}" target="_blank" rel="noopener">Open label PDF</a>`, null, null, "Close");
+      } catch (e) { toast(e.message); }
+    });
+}
+
 /* ---------- bin ---------- */
 function renderBin() {
   const b = $("#binbar");
-  if (state.bin) { b.className = "binbar on"; b.innerHTML = `<div class="t"><small>Putting bags in</small>${tag(state.bin.path)}</div><button class="btn sm" data-bin>Change</button>`; }
+  if (state.bin) { b.className = "binbar on"; b.innerHTML = `<div class="t"><small>Putting bags in</small>${tag(state.bin.path)}</div><div style="display:flex;gap:6px"><button class="btn sm" data-print>Print label</button><button class="btn sm" data-bin>Change</button></div>`; }
   else { b.className = "binbar note"; b.innerHTML = `<div class="t"><b>No bin set</b><small>Scan a bin label, or write a note about where each bag goes.</small></div><button class="btn sm" data-bin>Set bin</button>`; }
   b.querySelector("[data-bin]").onclick = binSheet;
+  const pb = b.querySelector("[data-print]"); if (pb) pb.onclick = () => printSheet("stocklocation", [state.bin.id], state.bin.path);
 }
 function setBin(b) { state.bin = b; localStorage.bin = JSON.stringify(b); renderBin(); }
 function binSheet() {
@@ -74,9 +103,14 @@ function binSheet() {
    <p class="muted sm">Point the camera at a bin label, or type a path. New paths are created.</p>
    <input class="field mono" name="path" placeholder="Cabinet A / Drawer 3 / Bin 2" autocomplete="off">
    <button class="btn primary" type="submit">Use this bin</button>
+   <button class="btn" type="button" id="mkprint">Create bin and print its label</button>
    <button class="btn" type="button" id="nobin">No bin label: I'll write a note instead</button>`,
     async f => { const p = (f.get("path") || "").trim(); if (p) { try { setBin(await api("/api/bin", { path: p })); } catch (e) { toast(e.message); } } });
   $("#nobin").onclick = () => { setBin(null); $("#sheet").close(); };
+  $("#mkprint").onclick = async () => {
+    const p = ($("#sheetForm input[name=path]").value || "").trim(); if (!p) { toast("Type the bin path first"); return; }
+    try { const b = await api("/api/bin", { path: p }); setBin(b); $("#sheet").close(); setTimeout(() => printSheet("stocklocation", [b.id], b.path), 80); } catch (e) { toast(e.message); }
+  };
 }
 
 /* ---------- scanning ---------- */
@@ -103,7 +137,8 @@ async function sendBag(raw, note) {
   state.busy = true;
   try {
     const r = await api("/api/scan", { raw, location_id: state.bin?.id ?? null, qty: +$("#qty").value || null, note: note || null });
-    if (r.kind === "bin") { setBin(r); card("", `<div>Bin set</div>${tag(r.path)}`); toast("Bin set"); }
+    if (r.kind === "part") { location.hash = "#part/" + r.part_id; }
+    else if (r.kind === "bin") { setBin(r); card("", `<div>Bin set</div>${tag(r.path)}`); toast("Bin set"); }
     else if (r.status === "created") {
       showResult("ok", r.new_part ? "Added to inventory (new part)" : "Added to inventory", r, r.message ? esc(r.message) : "");
       card("", `<div class="name">${esc(r.name)}</div><div class="sm muted">Added ${esc(r.qty)} to ${esc(r.path || "")}</div>`, r.thumbnail);
@@ -119,7 +154,8 @@ function handleCode(text) {
   if (state.busy || state.paused) return;
   state.last = text; state.lastT = now;
   $("#finder").classList.add("hit"); setTimeout(() => $("#finder").classList.remove("hit"), 400);
-  if (text.startsWith("INVSCAN:LOC:") || state.bin) return sendBag(text);
+  const isBag = /^\[\)>|\x1d|\u241d/.test(text);
+  if (!isBag || state.bin) return sendBag(text);
   // bag without a bin: ask where it is going so it can be found later
   const mpn = (text.match(/1P([^\x1d␝]+)/) || [])[1] || "this bag";
   openSheet(`<h3>Where is it going?</h3>
@@ -239,12 +275,12 @@ async function loadPart(id) {
     box.innerHTML = `<button class="back" id="back"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>Back</button>
      <div class="hero">${d.image ? `<img src="${esc(d.image)}" alt="">` : ""}<div><h1>${esc(d.name)}</h1><p class="muted" style="margin-top:6px">${esc(d.description || "No description yet.")}</p></div></div>
      <div class="facts"><div><small>In stock</small><b>${esc(d.total)}</b></div><div><small>Last scanned</small><b>${esc(d.last_scanned || "never")}</b></div><div><small>Category</small><b>${esc(d.category || "none")}</b></div></div>
-     <div class="extlinks"><button class="btn sm" id="editPart">Edit name and description</button>${safeUrl(d.link) ? `<a class="btn sm" href="${esc(d.link)}" target="_blank" rel="noopener noreferrer">Datasheet</a>` : ""}<a class="btn sm" href="${esc(d.inventree_url)}" target="_blank" rel="noopener noreferrer">Open in InvenTree</a></div>
+     <div class="extlinks"><button class="btn sm" id="editPart">Edit name and description</button><button class="btn sm" id="printPart">Print part label</button>${safeUrl(d.link) ? `<a class="btn sm" href="${esc(d.link)}" target="_blank" rel="noopener noreferrer">Datasheet</a>` : ""}<a class="btn sm" href="${esc(d.inventree_url)}" target="_blank" rel="noopener noreferrer">Open in InvenTree</a></div>
      <h2>Where it is <small>${d.stock.length} ${d.stock.length === 1 ? "line" : "lines"}</small></h2>
      <div class="list">${d.stock.length ? d.stock.map(s => `<div class="line"><div class="top2">${tag(s.path, s.unplaced)}<span class="sm muted">quantity ${qbtn(s.stock_id, d.name, s.qty)}</span></div>
         ${s.note ? `<div class="note" style="margin:0">${esc(s.note)}</div>` : ""}
         ${s.details ? `<div class="sm muted">${esc(s.details)}</div>` : ""}<div class="sm muted">Added ${esc(s.date)}${s.batch ? ` &nbsp;<span class="mono">${esc(s.batch)}</span>` : ""}</div>
-        <div><button class="btn sm" data-place="${s.stock_id}" data-n="${esc(d.name)}" data-note="${esc(s.note)}">Move or edit note</button></div></div>`).join("") : '<div class="empty-state">No stock on hand.</div>'}</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm" data-place="${s.stock_id}" data-n="${esc(d.name)}" data-note="${esc(s.note)}">Move or edit note</button><button class="btn sm" data-printstock="${s.stock_id}">Print label</button></div></div>`).join("") : '<div class="empty-state">No stock on hand.</div>'}</div>
      ${d.manufacturers.length || dk ? `<h2>Part details</h2><div class="list"><table class="kv">${d.manufacturers.map(m => `<tr><td>Manufacturer</td><td>${esc(m.name)}</td></tr><tr><td>Manufacturer part no.</td><td class="mono">${esc(m.mpn)}</td></tr>`).join("")}${dk}</table></div>` : ""}
      ${d.params.length ? `<h2>Specifications <small>${d.params.length}</small></h2><div class="list"><table class="kv">${d.params.map(x => `<tr><td>${esc(x.name)}</td><td>${esc(x.value)}</td></tr>`).join("")}</table></div>` : ""}`;
     $("#back").onclick = goBack;
@@ -254,6 +290,8 @@ async function loadPart(id) {
       <button class="btn primary" type="submit">Save</button>`,
       async f => { try { await api(`/api/part/${id}/edit`, { name: f.get("name"), description: f.get("description") }); toast("Saved"); loadPart(id); } catch (e) { toast(e.message); } });
     box.querySelectorAll("[data-place]").forEach(b => b.onclick = () => placeSheet(+b.dataset.place, b.dataset.n, b.dataset.note));
+    $("#printPart").onclick = () => printSheet("part", [id], d.name);
+    box.querySelectorAll("[data-printstock]").forEach(b => b.onclick = () => printSheet("stockitem", [+b.dataset.printstock], d.name));
   } catch (e) { box.innerHTML = `<button class="back" id="back">Back</button><div class="card">Could not load this item: ${esc(e.message)}</div>`; $("#back").onclick = goBack; }
 }
 function goBack() { history.length > 1 ? history.back() : (location.hash = "#find"); }
@@ -276,4 +314,5 @@ function route() {
   window.scrollTo(0, 0);
 }
 addEventListener("hashchange", route);
+if (state.pin) setPin(state.pin);
 renderBin(); route();

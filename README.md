@@ -22,6 +22,10 @@ small bags into drawers.
   `/labels?ids=<location id>`; scan a label to set the current bin, then scan bags into it.
 - **No bin label? Write a note.** The bag is parked in an "Unplaced" location with your note ("blue box under the
   desk"). Search finds notes, and the home page lists everything that still needs a home.
+- **Print labels from the app.** Bins, parts and stock items, using InvenTree's own label templates. Output goes to
+  a label printer registered in InvenTree (for example a Brother QL) or, if none is usable, to a PDF you can open
+  or AirPrint. Scanning a bin label printed by InvenTree itself (`INV-SL..`) also works, and scanning an InvenTree
+  part or stock label opens that item. "Create bin and print its label" does it in one step.
 - **Find it later.** Search by part number, description, specs or your own notes; results show the bin path.
 - **Item pages.** Photo, specs, every stock line, edit name/description, move to a bin, link to the InvenTree page.
 - **Everything is editable.** Tap any quantity to set the exact number (recorded as a stock count in InvenTree).
@@ -88,6 +92,17 @@ Your InvenTree must be reachable from the internet for this to work.
    whether it was added, already in inventory, or failed. For small DataMatrix codes the **photo button** is the
    most reliable path: tap the code to focus, then shoot.
 3. **Find**: search; tap a result for the full item page.
+
+## Printing labels
+
+invscan uses InvenTree's label printing API, so whatever printer works in InvenTree works here.
+
+1. Make sure InvenTree has a label printer **machine** (Admin Center > Machines) and that its driver loads. For a
+   Brother QL install the `inventree-brother-plugin` package in InvenTree. invscan shows the exact error if
+   InvenTree reports the printer as unavailable, and offers a PDF instead.
+2. In the app: **Scan > Print label** for the current bin, **Scan > Set bin > Create bin and print its label** for a
+   new box, or **Print part label / Print label** on an item page.
+3. Choose the template and printer; your choice is remembered on that device.
 
 ## What is on a DigiKey label
 

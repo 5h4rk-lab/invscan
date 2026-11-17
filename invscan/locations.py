@@ -1,5 +1,7 @@
 """Bin paths like 'Cabinet A / Drawer 3 / Bin 2' <-> InvenTree stock location tree."""
 
+import re
+
 LABEL_PREFIX = "INVSCAN:LOC:"
 
 
@@ -22,6 +24,13 @@ def ensure_path(inv, path: str) -> int:
     return parent
 
 
+_INVENTREE_LOC = re.compile(r"^INV-SL(\d+)$")  # InvenTree's own short barcode for a stock location
+
+
 def parse_label(text: str) -> int | None:
+    """Location id from an invscan bin label or an InvenTree-printed location label, else None."""
     t = text.strip()
-    return int(t[len(LABEL_PREFIX):]) if t.startswith(LABEL_PREFIX) and t[len(LABEL_PREFIX):].isdigit() else None
+    if t.startswith(LABEL_PREFIX) and t[len(LABEL_PREFIX):].isdigit():
+        return int(t[len(LABEL_PREFIX):])
+    m = _INVENTREE_LOC.match(t)
+    return int(m.group(1)) if m else None

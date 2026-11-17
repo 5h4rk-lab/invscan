@@ -16,6 +16,7 @@ from .ingest import ingest
 from .locations import LABEL_PREFIX, ensure_path, parse_label
 from .notes import get_note, set_note
 from .parser import ScanError, parse_scan
+from .printing import MODELS, plan_print, printers, run_print, templates_by_model
 
 ROOT = Path(__file__).resolve().parent.parent
 PUBLIC = ROOT / "public"
@@ -85,6 +86,13 @@ class PartEditIn(BaseModel):
     description: str | None = None
 
 
+class PrintIn(BaseModel):
+    model: str
+    ids: list[int]
+    template: int | None = None
+    machine: str | None = None
+
+
 class PlaceIn(BaseModel):
     path: str | None = None
     note: str | None = None
@@ -107,6 +115,21 @@ def _where(s: dict) -> dict:
 @app.get("/")
 def index():
     return FileResponse(PUBLIC / "index.html", headers={"Cache-Control": "no-store"})
+
+
+def _inventree_barcode(raw: str) -> dict | None:
+    """Resolve a barcode InvenTree itself knows (part, stock item, location), or None."""
+    try:
+        r = inv().post("barcode/", barcode=raw)
+    except RuntimeError:
+        return None
+    if r.get("stocklocation"):
+        return {"kind": "bin", **location(r["stocklocation"]["pk"])}
+    if r.get("part"):
+        return {"kind": "part", "part_id": r["part"]["pk"]}
+    if r.get("stockitem"):
+        return {"kind": "part", "part_id": inv().get(f"stock/{r['stockitem']['pk']}/")["part"]}
+    return None
 
 
 @app.get("/api/health")
@@ -157,6 +180,9 @@ def scan(body: ScanIn):
     try:
         s = parse_scan(body.raw)
     except ScanError as e:
+        hit = _inventree_barcode(body.raw)  # maybe a label printed by InvenTree for a part or stock item
+        if hit:
+            return hit
         raise HTTPException(422, str(e))
     r = ingest(inv(), s, body.location_id, body.qty, dk(), body.note)
     part = inv().get(f"part/{r.part_id}/") if r.part_id else {}
@@ -253,6 +279,24 @@ def part_edit(pk: int, body: PartEditIn):
     if upd:
         inv().patch(f"part/{pk}/", **upd)
     return part_detail(pk)
+
+
+@app.get("/api/printing", dependencies=[Depends(auth)])
+def printing_info():
+    return {"templates": templates_by_model(inv()), "printers": printers(inv())}
+
+
+@app.post("/api/print", dependencies=[Depends(auth)])
+def print_labels(body: PrintIn):
+    if body.model not in MODELS or not body.ids:
+        raise HTTPException(422, "nothing to print")
+    plan = plan_print(body.model, templates_by_model(inv()), printers(inv()), body.machine, body.template)
+    if plan["template"] is None:
+        raise HTTPException(422, f"no enabled label template for {body.model} in InvenTree")
+    try:
+        return run_print(inv(), body.model, body.ids, plan)
+    except RuntimeError as e:
+        raise HTTPException(502, str(e))
 
 
 @app.get("/labels", response_class=HTMLResponse, dependencies=[Depends(auth)])

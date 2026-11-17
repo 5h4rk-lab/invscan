@@ -122,3 +122,25 @@ def test_no_pin_configured_refuses_to_run(monkeypatch):
     monkeypatch.delenv("SCAN_PIN", raising=False)
     monkeypatch.delenv("INVSCAN_ALLOW_NO_PIN", raising=False)
     assert TestClient(server.app).get("/api/home").status_code == 503
+
+
+def test_bin_label_formats():
+    from invscan.locations import parse_label
+    assert parse_label("INVSCAN:LOC:5") == 5          # invscan's own label
+    assert parse_label("INV-SL12") == 12              # label printed by InvenTree itself
+    assert parse_label(" INV-SL7\n") == 7
+    assert parse_label("INV-SI5") is None             # a stock item, not a bin
+    assert parse_label("hello") is None
+
+
+def test_print_plan():
+    from invscan.printing import plan_print
+    tpls = {"stocklocation": [{"id": 5, "name": "Location (QR)"}, {"id": 4, "name": "Location (QR + Text)"}]}
+    ok = [{"id": "m1", "name": "Brother", "ok": True}]
+    down = [{"id": "m1", "name": "Brother", "ok": False, "error": "Driver 'brother' not found"}]
+    p = plan_print("stocklocation", tpls, ok, None, None)
+    assert (p["plugin"], p["machine"], p["template"]) == ("inventreelabelmachine", "m1", 4)   # prefers the QR + Text label
+    p = plan_print("stocklocation", tpls, down, "m1", 5)
+    assert (p["plugin"], p["machine"], p["template"]) == ("inventreelabel", None, 5)         # falls back to PDF
+    assert "Driver" in p["fallback"]
+    assert plan_print("stocklocation", tpls, [], None, None)["plugin"] == "inventreelabel"
