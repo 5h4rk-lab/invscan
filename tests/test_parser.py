@@ -107,3 +107,17 @@ def test_mouser_with_printed_separators():
 def test_digikey_labels_are_not_mistaken_for_mouser():
     assert parse_scan(REAL).vendor == "digikey" or parse_scan(REAL).vendor == ""
     assert parse_scan(NEW).vendor == "digikey"
+
+
+def test_digikey_part_numbers_may_contain_underscores_and_other_punctuation():
+    from invscan.parser import DK_PN
+    for ok in ("296-19733-5-ND", "1528-4939-ND", "2521-IS32CG5317EVK_KIT-ND", "497-1234-1-ND", "3SMAJ5939B-TPMSCT-ND".replace("3SMAJ", "36-3SMAJ")):
+        assert DK_PN.match(ok), ok
+    for bad in ("C29", "647-RL81C221MDN1KX", "HAMZAH", "296-19733-5", "-ND", ""):
+        assert not DK_PN.match(bad), bad
+
+
+def test_pn_with_an_underscore_in_the_customer_field_is_used_as_the_sku():
+    raw = f"[)>{RS}06{GS}P2521-IS32CG5317EVK_KIT-ND{GS}1PIS32CG5317EVK_KIT{GS}Q1{GS}12Z15772483{GS}13Z999999{EOT}"
+    s = parse_scan(raw)
+    assert s.supplier_sku == "2521-IS32CG5317EVK_KIT-ND" and s.customer_ref == "" and s.mpn == "IS32CG5317EVK_KIT"

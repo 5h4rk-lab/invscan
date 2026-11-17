@@ -77,6 +77,25 @@ async function uploadPhoto(partId, file) {
 }
 
 /* ---------- add by hand ---------- */
+function finishManual(r) {
+  state.view === "scan" || (location.hash = "#scan");
+  showResult("ok", r.new_part ? "Added to inventory (new part)" : "Added to inventory", r, r.message ? esc(r.message) : "");
+  card("", `<div class="name">${esc(r.name)}</div><div class="sm muted">Added ${esc(r.qty)} to ${esc(r.path || "")}</div>`, r.thumbnail);
+  if (r.stock_id) setTimeout(() => printSheet("stockitem", [r.stock_id], r.name), 150);  // a part added by hand has no label yet
+}
+function damagedSheet(prefill = "") {
+  openSheet(`<h3>Label won't scan</h3>
+    <p class="muted sm">When the square code is worn or covered, type what is printed after <b>PN:</b> on the label. It ends in <span class="mono">-ND</span>. DigiKey fills in the rest.</p>
+    <label>DigiKey part number<input class="field mono" name="pn" placeholder="2521-IS32CG5317EVK_KIT-ND" value="${esc(prefill)}" required autocapitalize="characters" autocomplete="off" spellcheck="false" autofocus></label>
+    <label>Quantity<input class="field" name="qty" type="number" inputmode="numeric" min="1" required placeholder="1"></label>
+    <div class="grid2"><label>Lot code (optional)<input class="field" name="lot" autocomplete="off"></label><label>Date code (optional)<input class="field" name="dc" autocomplete="off"></label></div>
+    ${state.bin ? `<div>${tag(state.bin.path)}</div>` : `<label>Where is it?<textarea class="field" name="note" required placeholder="Blue box under the desk, left side"></textarea></label>`}
+    <button class="btn primary" type="submit">Add to inventory</button>`,
+    async f => {
+      const body = { name: f.get("pn").trim(), qty: +f.get("qty"), location_id: state.bin?.id ?? null, note: (f.get("note") || "").trim() || null, lot_code: (f.get("lot") || "").trim(), date_code: (f.get("dc") || "").trim() };
+      try { finishManual(await api("/api/part/new", body)); } catch (e) { toast(e.message); }
+    });
+}
 async function handSheet(prefill = "") {
   try { await loadCats(); } catch { /* the category choice is optional */ }
   openSheet(`<h3>Add a part by hand</h3>
@@ -98,15 +117,13 @@ async function handSheet(prefill = "") {
         try { const u = await uploadPhoto(r.part_id, photo); r.thumbnail = u.thumbnail || r.thumbnail; }
         catch (e) { toast("Added, but the photo failed: " + e.message); }
       }
-      state.view === "scan" || (location.hash = "#scan");
-      showResult("ok", r.new_part ? "Added to inventory (new part)" : "Added to inventory", r, r.message ? esc(r.message) : "");
-      card("", `<div class="name">${esc(r.name)}</div><div class="sm muted">Added ${esc(r.qty)} to ${esc(r.path || "")}</div>`, r.thumbnail);
-      if (r.stock_id) setTimeout(() => printSheet("stockitem", [r.stock_id], r.name), 150);  // a part added by hand has no label yet
+      finishManual(r);
     });
   $("#pickPhoto").onclick = () => $("#photoIn").click();
   $("#photoIn").onchange = e => { $("#photoName").textContent = e.target.files[0] ? "Photo ready: " + e.target.files[0].name : "So it shows up when you search"; };
 }
 $("#handBtn").onclick = () => handSheet();
+$("#dmgBtn").onclick = () => damagedSheet();
 
 /* ---------- printing ---------- */
 async function printSheet(model, ids, title) {
@@ -276,10 +293,15 @@ function handleCode(text, extra = {}) {
 }
 // A Mouser square code has no part number: it is in the long "P/N:" barcode on the same label.
 const isMouserCode = s => /(\x1d|<GS>|\u241d)14K\d/.test(s) && !/(\x1d|<GS>|\u241d)1P/.test(s);
-async function readImage(src, w, h, draw) {
+async function readImage(src, w, h, draw, deep = false) {
   const c = document.createElement("canvas"); c.width = w; c.height = h; const x = c.getContext("2d", { willReadFrequently: true });
   draw(x); const data = x.getImageData(0, 0, w, h);
-  const rs = await ZXingWASM.readBarcodes(data, { formats: ["DataMatrix", "QRCode"], tryHarder: true, maxNumberOfSymbols: 3 });
+  let rs = await ZXingWASM.readBarcodes(data, { formats: ["DataMatrix", "QRCode"], tryHarder: true, maxNumberOfSymbols: 3 });
+  // a photo is worth a few more attempts: glare and shadows change what counts as black
+  for (const binarizer of deep && !rs.length ? ["GlobalHistogram", "FixedThreshold"] : []) {
+    rs = await ZXingWASM.readBarcodes(data, { formats: ["DataMatrix", "QRCode"], tryHarder: true, tryInvert: true, maxNumberOfSymbols: 3, binarizer });
+    if (rs.length) break;
+  }
   const main = rs.find(r => r.format === "DataMatrix") || rs[0];
   if (!main) return null;
   const out = { text: main.text };
@@ -327,9 +349,12 @@ $("#photo").onchange = async e => {
   const f = e.target.files[0]; if (!f) return;
   try {
     const bm = await createImageBitmap(f), k = Math.min(1, 3000 / Math.max(bm.width, bm.height)), w = Math.round(bm.width * k), h = Math.round(bm.height * k);
-    const t = await readImage(bm, w, h, x => x.drawImage(bm, 0, 0, w, h));
+    const t = await readImage(bm, w, h, x => x.drawImage(bm, 0, 0, w, h), true);
     state.last = "";
-    if (t) handleCode(t.text, { mouser_pn: t.mouser_pn }); else showResult("err", "No code found in the photo", { mpn: "" }, `${bm.width}x${bm.height}. Move closer, keep the label flat, and avoid glare.`);
+    if (t) handleCode(t.text, { mouser_pn: t.mouser_pn }); else {
+      showResult("err", "No code found in the photo", { mpn: "" }, `Move closer, keep the label flat and avoid glare. If the square code is worn, torn or covered, no scanner can read it: type the part number instead.<div style="margin-top:10px"><button class="btn sm primary" id="dmgFail" type="button">Type the part number</button></div>`);
+      const fb = $("#dmgFail"); if (fb) fb.onclick = () => damagedSheet();
+    }
   } catch (x) { card("err", `<div class="sm">${esc(x.message)}</div>`); }
   e.target.value = "";
 };

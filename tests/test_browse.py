@@ -144,3 +144,39 @@ def test_other_parts_are_not_reported():
     ingest(inv, _scan("100"), 5)
     r = ingest(inv, Scan(mpn="OTHER-9", vendor="digikey", sales_order="300", load_id="301", qty=1), 9)
     assert r.others == []
+
+
+def test_damaged_label_entry_keeps_lot_and_date_code_in_the_notes():
+    from invscan.ingest import add_manual
+    inv = Fake()
+    r = add_manual(inv, None, "WIDGET-9", "", 1, 7, None, lot_code="2408_REV5", date_code="2408")
+    assert r.status == "created"
+    n = inv.stock[0]["notes"]
+    assert "lot 2408_REV5" in n and "date code 2408" in n
+
+
+def test_new_part_request_takes_lot_and_date_code():
+    from invscan.server import NewPartIn
+    m = NewPartIn(name="x", qty=1, lot_code="L1", date_code="2408")
+    assert (m.lot_code, m.date_code) == ("L1", "2408")
+
+
+def test_enrichment_replaces_the_placeholder_description_but_keeps_one_you_typed():
+    from invscan.enrich import enrich_part
+
+    class Inv(Fake):
+        def __init__(self, desc):
+            super().__init__(); self.desc, self.patches = desc, []
+        def get(self, path, **_):
+            return {"description": self.desc, "keywords": "x", "link": "http://l", "image": "i", "category_name": "Equipment"}
+        def patch(self, path, **b):
+            self.patches.append(b)
+    prod = {"ManufacturerProductNumber": "M1", "Manufacturer": {"Name": "Acme"}, "Description": {"ProductDescription": "EVAL BOARD"},
+            "ProductVariations": [], "Parameters": []}
+    for placeholder in ("Added by hand", "Imported from DigiKey scan", "Imported from Mouser scan", ""):
+        inv = Inv(placeholder)
+        enrich_part(inv, 1, prod)
+        assert any(b.get("description") == "EVAL BOARD" for b in inv.patches), placeholder
+    inv = Inv("My own words")
+    enrich_part(inv, 1, prod)
+    assert not any("description" in b for b in inv.patches)

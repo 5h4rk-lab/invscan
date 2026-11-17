@@ -41,6 +41,9 @@ small bags into drawers.
 - **Spots duplicates of what you already hold.** Scan a bag of a part you already have and the result says
   "You already have this part", shows where, and has **Put this bag there**. With no bin set, the note sheet offers
   the place you already keep it.
+- **Worn or covered labels.** If the square code cannot be read (a torn, peeled or covered code is unreadable to any
+  scanner), type the DigiKey part number printed after `PN:`; the part, specs, category and supplier part are filled
+  in from DigiKey, and lot and date codes can be added.
 - **Find it later.** Search by part number, description, specs or your own notes; results show the bin path.
 - **Item pages.** Photo, specs, every stock line, edit name/description, move to a bin, link to the InvenTree page.
 - **Everything is editable.** Tap any quantity to set the exact number (recorded as a stock count in InvenTree).
@@ -228,6 +231,7 @@ Bricolage Grotesque and IBM Plex Mono (SIL Open Font License 1.1).
 - Built for DigiKey and Mouser labels. Other suppliers using ECIA labels may parse, but get no enrichment.
 - The Mouser Search API path is written against Mouser's documented response format but is untested without a key.
 - Parts are created in an "Unsorted" category; categorise them in InvenTree.
+- Text recognition (OCR) of printed labels was tried and is not reliable enough to trust: it confuses `I`/`1`, `S`/`5`, `C`/`0`. Type the part number instead.
 - Live scanning of small DataMatrix codes depends on the camera; the photo button is the fallback.
 
 ## License

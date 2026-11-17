@@ -61,7 +61,7 @@ def enrich_part(inv, part_id: int, product: dict, supplier: str = "Digi-Key", va
         cat = ensure_category_path(inv, path)
         if cat:
             upd["category"] = cat
-    if not part.get("description") or part["description"].startswith("Imported from"):
+    if not part.get("description") or part["description"].startswith(("Imported from", "Added by hand")):
         upd["description"] = desc[:250]
     if not part.get("keywords"):
         upd["keywords"] = kw[:250]

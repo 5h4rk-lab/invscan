@@ -165,7 +165,7 @@ def ingest(inv, scan: Scan, location_id: int | None, qty: int | None = None, dk=
 
 
 def add_manual(inv, dk, name: str, description: str, qty: int, location_id: int | None, note: str | None,
-               category: int | None = None) -> Result:
+               category: int | None = None, lot_code: str = "", date_code: str = "") -> Result:
     """Add a part that has no DigiKey code: by part number, or by a DigiKey part number (looked up for you).
     It is filed in `category` if given, else by DigiKey's category if the number is found there, else in
     Miscellaneous."""
@@ -180,6 +180,6 @@ def add_manual(inv, dk, name: str, description: str, qty: int, location_id: int 
         product = dk.lookup(sku, sku)
         if product:
             mpn = product["ManufacturerProductNumber"]
-    scan = Scan(mpn=mpn, qty=int(qty), supplier_sku=sku)
+    scan = Scan(mpn=mpn, qty=int(qty), supplier_sku=sku, lot_code=(lot_code or "").strip(), date_code=(date_code or "").strip())
     return ingest(inv, scan, location_id, int(qty), dk, note, description=(description or "").strip() or None,
                   category=category, manual=True)
