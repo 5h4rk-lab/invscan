@@ -100,6 +100,10 @@ invscan uses InvenTree's label printing API, so whatever printer works in InvenT
 1. Make sure InvenTree has a label printer **machine** (Admin Center > Machines) and that its driver loads. For a
    Brother QL install the `inventree-brother-plugin` package in InvenTree. invscan shows the exact error if
    InvenTree reports the printer as unavailable, and offers a PDF instead.
+   The printer's IP address must be reachable **from the InvenTree server** (not from your phone or from invscan).
+   If a print never finishes, check Admin Center > Background Tasks for a failed `print_labels` task: a connection
+   timeout there means InvenTree cannot reach the printer. Plugins installed through InvenTree's UI can disappear
+   when its container is recreated; to keep one, list it in InvenTree's `plugins.txt` (in its data volume).
 2. In the app: **Scan > Print label** for the current bin, **Scan > Set bin > Create bin and print its label** for a
    new box, or **Print part label / Print label** on an item page.
 3. Choose the template and printer; your choice is remembered on that device.

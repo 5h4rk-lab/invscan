@@ -56,4 +56,9 @@ def run_print(inv, model: str, ids: list[int], plan: dict, timeout: float = 25.0
                 return {"ok": True, "mode": "printer", "message": "Sent to the printer."}
             return {"ok": True, "mode": "pdf", "url": j.get("output"), "message": plan["fallback"] or "PDF ready."}
         time.sleep(0.5)
-    return {"ok": False, "mode": "printer" if plan["machine"] else "pdf", "message": "Timed out waiting for InvenTree."}
+    if plan["machine"]:
+        return {"ok": False, "mode": "printer", "message": (
+            "The printer did not answer. InvenTree is still trying to reach it. Check that it is on, and that its "
+            "IP address in InvenTree (Admin Center > Machines) is current and reachable from the InvenTree server. "
+            "Choose PDF to print another way.")}
+    return {"ok": False, "mode": "pdf", "message": "Timed out waiting for InvenTree."}
