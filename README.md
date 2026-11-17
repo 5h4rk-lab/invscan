@@ -130,8 +130,9 @@ python scripts/install_labels.py
 ```
 
 The room is shown in its own highlighted block: any level whose name starts with "Room" (for example `Room 204`). It is picked automatically as the default bin label. When creating a bin, fill in Room number (typing `204` saves `Room 204`), Cabinet or shelf,
-Drawer and Bin or box; the path becomes the location tree, so the label shows each level. Adjust the HTML for other
-media sizes (the template reads InvenTree's `width` and `height`).
+Drawer and Bin or box; the path becomes the location tree, so the label shows each level. The name steps down in size (and wraps for very long names) so it is never cut off, and the corner mark
+(hen, or a per-owner picture) sits top-right. Adjust the HTML for other media sizes (the template reads
+InvenTree's `width` and `height`).
 
 ## What is on a DigiKey label
 

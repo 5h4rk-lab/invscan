@@ -19,7 +19,7 @@ MARKS = HERE / "marks"
 DESIGNS = [
     # file, name shown in InvenTree, model, width mm, height mm, description, expression naming the owner (or None)
     ("invscan_bin_label.html", "invscan Bin Label (62x30)", "stocklocation", 62, 30,
-     "QR plus the full place (room, cabinet, drawer) with the bin name large. For 62 mm tape.", None),
+     "QR plus the full place (room, cabinet, drawer) with the bin name large. For 62 mm tape.", "location.owner"),
     ("invscan_stock_label.html", "invscan Stock Label (62x30)", "stockitem", 62, 30,
      "QR that opens the item, part name, description, quantity and place. For 62 mm tape.", "item.owner"),
     ("invscan_part_label.html", "invscan Part Label (62x30)", "part", 62, 30,

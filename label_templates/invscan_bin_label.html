@@ -21,12 +21,12 @@
     right: 1.5mm;
     top: 1.2mm;
     bottom: 1.2mm;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
     font-family: Arial, Helvetica, sans-serif;
     color: #000;
 }
+
+/* room, cabinet, drawer: leave the top-right corner for the mark */
+.top { margin-right: 9mm; }
 
 .room {
     background: #000;
@@ -38,7 +38,6 @@
     margin-bottom: 0.8mm;
     white-space: nowrap;
     overflow: hidden;
-    text-overflow: ellipsis;
 }
 
 .level {
@@ -50,15 +49,30 @@
     text-overflow: ellipsis;
 }
 
+/* the name is anchored to the bottom edge and steps down as it gets longer, so it is never cut off */
 .bin {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
     font-size: 19pt;
     line-height: 1.0;
     font-weight: 800;
     white-space: nowrap;
     overflow: hidden;
-    text-overflow: ellipsis;
     border-top: 0.4mm solid #000;
     padding-top: 0.8mm;
+}
+.bin.s2 { font-size: 16pt; }
+.bin.s3 { font-size: 13pt; }
+.bin.s4 { font-size: 10.5pt; }
+.bin.s5 { font-size: 10pt; line-height: 1.1; white-space: normal; }
+
+.mark {
+    position: absolute;
+    right: 0;
+    top: 0;
+    height: 7.5mm;
 }
 {% endblock style %}
 
@@ -67,7 +81,7 @@
 <img class='qr' alt="{% trans 'QR code' %}" src='{% qrcode qr_data %}'>
 
 <div class='info'>
-    <div>
+    <div class='top'>
         {% for place in location.get_ancestors %}{% if place.name|slice:":4"|lower == "room" %}
         <div class='room'>{{ place.name }}</div>
         {% endif %}{% endfor %}
@@ -75,7 +89,10 @@
         <div class='level'>{{ place.name }}</div>
         {% endif %}{% endfor %}
     </div>
-    <div class='bin'>{{ location.name }}</div>
+    {% with n=location.name|length %}
+    <div class='bin{% if n > 13 %} s5{% elif n > 10 %} s4{% elif n > 8 %} s3{% elif n > 6 %} s2{% endif %}'>{{ location.name }}</div>
+    {% endwith %}
+    __MARK__
 </div>
 
 {% endblock content %}
