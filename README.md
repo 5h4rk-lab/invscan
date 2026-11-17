@@ -104,6 +104,20 @@ invscan uses InvenTree's label printing API, so whatever printer works in InvenT
    new box, or **Print part label / Print label** on an item page.
 3. Choose the template and printer; your choice is remembered on that device.
 
+### Bin label design
+
+`label_templates/invscan_bin_label.html` is a 62 x 30 mm label (QR on the left, the whole place stacked on the
+right: room, cabinet, drawer, with the bin name large). Install it into InvenTree once; re-run to update it:
+
+```bash
+set -a; . ./.env; set +a
+python scripts/install_labels.py
+```
+
+It is picked automatically as the default bin label. When creating a bin, fill in Room, Cabinet or shelf, Drawer
+and Bin or box; the path becomes the location tree, so the label shows each level. Adjust the HTML for other
+media sizes (the template reads InvenTree's `width` and `height`).
+
 ## What is on a DigiKey label
 
 The 2D code is a DataMatrix in ISO 15434 format 06, fields separated by GS (0x1D):

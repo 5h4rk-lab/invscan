@@ -144,3 +144,10 @@ def test_print_plan():
     assert (p["plugin"], p["machine"], p["template"]) == ("inventreelabel", None, 5)         # falls back to PDF
     assert "Driver" in p["fallback"]
     assert plan_print("stocklocation", tpls, [], None, None)["plugin"] == "inventreelabel"
+
+
+def test_print_plan_prefers_invscan_design():
+    from invscan.printing import plan_print
+    tpls = {"stocklocation": [{"id": 4, "name": "InvenTree Stock Location Label (QR + Text)"},
+                              {"id": 20, "name": "invscan Bin Label (62x30)"}]}
+    assert plan_print("stocklocation", tpls, [], None, None)["template"] == 20

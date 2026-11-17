@@ -69,7 +69,7 @@ async function printSheet(model, ids, title) {
   if (!tpls.length) { toast("InvenTree has no enabled label template for this. Add one in InvenTree."); return; }
   const up = info.printers.filter(p => p.ok), down = info.printers.filter(p => !p.ok);
   const outDefault = up.find(p => p.id === saved.machine)?.id || up[0]?.id || "pdf";
-  const tplDefault = tpls.find(x => x.id === saved[model])?.id || (tpls.find(x => x.name.includes("QR + Text")) || tpls[0]).id;
+  const tplDefault = tpls.find(x => x.id === saved[model])?.id || (tpls.find(x => /^invscan/i.test(x.name)) || tpls.find(x => x.name.includes("QR + Text")) || tpls[0]).id;
   openSheet(`<h3>Print label</h3><p class="muted sm">${esc(title)}</p>
     <label>Label<select class="field" name="template">${tpls.map(x => `<option value="${x.id}" ${x.id === tplDefault ? "selected" : ""}>${esc(x.name)} (${esc(x.size)})</option>`).join("")}</select></label>
     <label>Send to<select class="field" name="out">${up.map(p => `<option value="${esc(p.id)}" ${p.id === outDefault ? "selected" : ""}>${esc(p.name)}</option>`).join("")}<option value="pdf" ${outDefault === "pdf" ? "selected" : ""}>PDF to open or AirPrint</option></select></label>
@@ -98,20 +98,29 @@ function renderBin() {
   const pb = b.querySelector("[data-print]"); if (pb) pb.onclick = () => printSheet("stocklocation", [state.bin.id], state.bin.path);
 }
 function setBin(b) { state.bin = b; localStorage.bin = JSON.stringify(b); renderBin(); }
+const BIN_FIELDS = [["room", "Room", "Room 204"], ["cabinet", "Cabinet or shelf", "Cabinet A"], ["drawer", "Drawer", "Drawer 3"], ["bin", "Bin or box", "Bin 2"]];
+function binPath(f) {
+  const full = (f.get("path") || "").trim(); if (full) return full;
+  return BIN_FIELDS.map(([k]) => (f.get(k) || "").trim()).filter(Boolean).join(" / ");
+}
 function binSheet() {
+  const last = JSON.parse(localStorage.binParts || "{}");
   openSheet(`<h3>Where are bags going?</h3>
-   <p class="muted sm">Point the camera at a bin label, or type a path. New paths are created.</p>
-   <input class="field mono" name="path" placeholder="Cabinet A / Drawer 3 / Bin 2" autocomplete="off">
+   <p class="muted sm">Point the camera at a bin label, or fill in the place. Anything new is created, and you can print its label.</p>
+   <div class="grid2">${BIN_FIELDS.map(([k, l, ph]) => `<label>${l}<input class="field" name="${k}" placeholder="${ph}" value="${esc(k === "room" || k === "cabinet" ? last[k] || "" : "")}" autocomplete="off"></label>`).join("")}</div>
+   <details><summary class="sm muted" style="cursor:pointer">Type a full path instead</summary><input class="field mono" name="path" placeholder="Room 204 / Cabinet A / Drawer 3 / Bin 2" style="margin-top:8px"></details>
    <button class="btn primary" type="submit">Use this bin</button>
    <button class="btn" type="button" id="mkprint">Create bin and print its label</button>
    <button class="btn" type="button" id="nobin">No bin label: I'll write a note instead</button>`,
-    async f => { const p = (f.get("path") || "").trim(); if (p) { try { setBin(await api("/api/bin", { path: p })); } catch (e) { toast(e.message); } } });
+    async f => { const p = binPath(f); if (p) { rememberBin(f); try { setBin(await api("/api/bin", { path: p })); } catch (e) { toast(e.message); } } });
   $("#nobin").onclick = () => { setBin(null); $("#sheet").close(); };
   $("#mkprint").onclick = async () => {
-    const p = ($("#sheetForm input[name=path]").value || "").trim(); if (!p) { toast("Type the bin path first"); return; }
+    const f = new FormData($("#sheetForm")), p = binPath(f); if (!p) { toast("Fill in at least the bin or box"); return; }
+    rememberBin(f);
     try { const b = await api("/api/bin", { path: p }); setBin(b); $("#sheet").close(); setTimeout(() => printSheet("stocklocation", [b.id], b.path), 80); } catch (e) { toast(e.message); }
   };
 }
+function rememberBin(f) { localStorage.binParts = JSON.stringify({ room: (f.get("room") || "").trim(), cabinet: (f.get("cabinet") || "").trim() }); }
 
 /* ---------- scanning ---------- */
 function card(cls, html, thumb) {

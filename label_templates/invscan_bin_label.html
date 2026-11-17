@@ -1,0 +1,65 @@
+{% extends "label/label_base.html" %}
+{% load l10n i18n barcode %}
+{# invscan bin label: QR on the left, the full place on the right (room > cabinet > drawer) with the bin name large. #}
+
+{% block style %}
+.qr {
+    position: absolute;
+    left: 1.5mm;
+    top: 1.5mm;
+    {% localize off %}
+    height: {{ height|add:"-3" }}mm;
+    width: {{ height|add:"-3" }}mm;
+    {% endlocalize %}
+}
+
+.info {
+    position: absolute;
+    {% localize off %}
+    left: {{ height|add:"1" }}mm;
+    {% endlocalize %}
+    right: 1.5mm;
+    top: 1.2mm;
+    bottom: 1.2mm;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    font-family: Arial, Helvetica, sans-serif;
+    color: #000;
+}
+
+.level {
+    font-size: 8.5pt;
+    line-height: 1.15;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.bin {
+    font-size: 19pt;
+    line-height: 1.0;
+    font-weight: 800;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border-top: 0.4mm solid #000;
+    padding-top: 0.8mm;
+}
+{% endblock style %}
+
+{% block content %}
+
+<img class='qr' alt="{% trans 'QR code' %}" src='{% qrcode qr_data %}'>
+
+<div class='info'>
+    <div>
+        {% for place in location.get_ancestors %}
+        <div class='level'>{{ place.name }}</div>
+        {% endfor %}
+    </div>
+    <div class='bin'>{{ location.name }}</div>
+</div>
+
+{% endblock content %}

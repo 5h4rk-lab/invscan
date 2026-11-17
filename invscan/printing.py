@@ -28,7 +28,9 @@ def plan_print(model: str, templates: dict, machines: list[dict], machine: str |
     """Decide template + output. Uses a printer when it is healthy, otherwise falls back to a PDF."""
     avail = templates.get(model, [])
     if template is None and avail:
-        pref = [t for t in avail if "QR + Text" in t["name"]] or avail  # text under the QR is handy on bins
+        # our own design shows the whole place (room, cabinet, drawer); else a QR + text label is handy on bins
+        pref = ([t for t in avail if t["name"].lower().startswith("invscan")]
+                or [t for t in avail if "QR + Text" in t["name"]] or avail)
         template = pref[0]["id"]
     chosen = next((m for m in machines if m["id"] == machine), None) if machine else next((m for m in machines if m["ok"]), None)
     if chosen and chosen["ok"]:
