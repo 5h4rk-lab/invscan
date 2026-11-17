@@ -1,0 +1,12 @@
+.env
+.venv
+venv
+tests
+labels
+ruvector.db
+Dockerfile
+docker-compose.yml
+.dockerignore
+__pycache__
+.pytest_cache
+.env.local

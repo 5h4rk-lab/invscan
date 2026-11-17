@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0E4B3C">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="invscan">
+<title>invscan</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230E4B3C'/%3E%3Ccircle cx='16' cy='16' r='6' fill='%23D08A3E'/%3E%3Ccircle cx='16' cy='16' r='2.4' fill='%230E4B3C'/%3E%3C/svg%3E">
+<link rel="preload" href="/static/fonts/bricolage.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/static/app.css">
+</head><body>
+<header class="top"><span class="mark"></span><b>invscan</b><span class="sp"></span><button id="pinBtn" type="button">PIN</button></header>
+
+<main>
+ <section id="v-home" class="view">
+  <h1>What are you looking for?</h1>
+  <input id="homeQ" class="field search" type="search" placeholder="Part number, value, or a note you wrote" enterkeyhint="search" autocomplete="off">
+  <div class="actions">
+   <a class="btn primary" href="#scan" style="text-decoration:none">Scan a bag</a>
+   <a class="btn" href="#find" style="text-decoration:none">Search</a>
+  </div>
+  <div class="stats" id="stats"></div>
+  <div id="homeBody"></div>
+ </section>
+
+ <section id="v-scan" class="view" hidden>
+  <div class="binbar" id="binbar"></div>
+  <div class="result" id="result" hidden aria-live="polite"></div>
+  <div class="finder" id="finder">
+   <video id="v" playsinline muted></video><i></i><i></i><i></i><i></i>
+   <div class="st" id="st">starting camera</div>
+   <div class="off" id="camOff" hidden></div>
+  </div>
+  <button id="photoBtn" class="btn primary big" type="button">Photo of DigiKey bag</button>
+  <input id="photo" type="file" accept="image/*" capture="environment" hidden>
+  <div class="actions"><input id="qty" class="field" inputmode="numeric" placeholder="Quantity if the label has none" style="flex:2"></div>
+  <p class="muted sm" style="margin-top:10px">Bin labels scan live. Bags are most reliable as a photo: tap the code to focus, then shoot.</p>
+  <div class="feed" id="feed"></div>
+ </section>
+
+ <section id="v-part" class="view" hidden><div id="partBody"></div></section>
+
+ <section id="v-find" class="view" hidden>
+  <h1>Find</h1>
+  <input id="q" class="field search" type="search" placeholder="Search parts and your location notes" enterkeyhint="search" autocomplete="off">
+  <div id="res" style="margin-top:16px"></div>
+ </section>
+</main>
+
+<nav class="tabs" aria-label="Sections">
+ <a href="#home" data-v="home"><svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>Home</a>
+ <a href="#scan" data-v="scan"><svg viewBox="0 0 24 24"><path d="M4 8V5a1 1 0 011-1h3M16 4h3a1 1 0 011 1v3M20 16v3a1 1 0 01-1 1h-3M8 20H5a1 1 0 01-1-1v-3M4 12h16"/></svg>Scan</a>
+ <a href="#find" data-v="find"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>Find</a>
+</nav>
+
+<dialog id="sheet"><form id="sheetForm" method="dialog"></form></dialog>
+
+<script src="/static/vendor/zxing-reader.js"></script>
+<script src="/static/app.js"></script>
+</body></html>

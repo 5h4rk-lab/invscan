@@ -1,0 +1,20 @@
+# secrets and local config
+.env
+.env.local
+.vercel/
+# generated / tool state
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+node_modules/
+labels/
+*.log
+*.db
+.claude-flow/
+.swarm/
+.claude/
+tests
+docs
+.github

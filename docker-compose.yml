@@ -1,0 +1,6 @@
+services:
+  invscan:
+    build: .
+    env_file: .env          # INVENTREE_URL, INVENTREE_TOKEN, DIGIKEY_*, optional SCAN_PIN
+    ports: ["8000:8000"]
+    restart: unless-stopped
