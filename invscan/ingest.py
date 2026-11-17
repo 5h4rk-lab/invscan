@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 from datetime import date
 
-from .categories import digikey_path, ensure_category_path
+from .categories import digikey_path, ensure_category_path, misc_category
 from .enrich import add_supplier_part, enrich_part, ensure_manufacturer_part
 from .locations import ensure_path
 from .notes import set_note
@@ -71,7 +71,7 @@ def unsorted_category(inv) -> int:
 
 
 def ingest(inv, scan: Scan, location_id: int | None, qty: int | None = None, dk=None, note: str | None = None,
-           description: str | None = None, mouser=None) -> Result:
+           description: str | None = None, mouser=None, category: int | None = None, manual: bool = False) -> Result:
     if not location_id and not (note or "").strip():
         return Result("error", message="no bin and no note: say where it went")
     qty = qty if qty is not None else scan.qty
@@ -105,7 +105,8 @@ def ingest(inv, scan: Scan, location_id: int | None, qty: int | None = None, dk=
             "part/",
             name=name, IPN=name,
             description=description or (f"Imported from {origin} scan" if (scan.sales_order or mouser_label) else "Added by hand"),
-            category=ensure_category_path(inv, digikey_path(product)) or unsorted_category(inv), component=True, purchaseable=True,
+            category=category or ensure_category_path(inv, digikey_path(product))
+            or (misc_category(inv) if manual else unsorted_category(inv)), component=True, purchaseable=True,
         )["pk"]
 
     mp_id = None
@@ -150,8 +151,11 @@ def ingest(inv, scan: Scan, location_id: int | None, qty: int | None = None, dk=
     return Result("created", part_id, item["pk"], new_part, msg)
 
 
-def add_manual(inv, dk, name: str, description: str, qty: int, location_id: int | None, note: str | None) -> Result:
-    """Add a part that has no DigiKey code: by part number, or by a DigiKey part number (looked up for you)."""
+def add_manual(inv, dk, name: str, description: str, qty: int, location_id: int | None, note: str | None,
+               category: int | None = None) -> Result:
+    """Add a part that has no DigiKey code: by part number, or by a DigiKey part number (looked up for you).
+    It is filed in `category` if given, else by DigiKey's category if the number is found there, else in
+    Miscellaneous."""
     name = (name or "").strip()
     if not name:
         return Result("error", message="enter a part number")
@@ -164,4 +168,5 @@ def add_manual(inv, dk, name: str, description: str, qty: int, location_id: int 
         if product:
             mpn = product["ManufacturerProductNumber"]
     scan = Scan(mpn=mpn, qty=int(qty), supplier_sku=sku)
-    return ingest(inv, scan, location_id, int(qty), dk, note, description=(description or "").strip() or None)
+    return ingest(inv, scan, location_id, int(qty), dk, note, description=(description or "").strip() or None,
+                  category=category, manual=True)

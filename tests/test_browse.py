@@ -85,3 +85,35 @@ def test_a_new_part_is_filed_in_its_digikey_category_not_unsorted():
     assert r.status == "created"
     assert [c["name"] for c in inv.cats] == ["Capacitors", "Aluminum - Polymer Capacitors"]     # no "Unsorted" created
     assert inv.parts[0]["category"] == inv.cats[1]["pk"]
+
+
+def test_hand_added_part_with_no_supplier_match_goes_to_miscellaneous():
+    from invscan.ingest import add_manual
+    inv = Fake()
+    r = add_manual(inv, None, "ThinkPad T60", "IBM laptop", 1, 7, None)
+    assert r.status == "created"
+    assert [c["name"] for c in inv.cats] == ["Miscellaneous"]            # not Unsorted
+    assert inv.parts[0]["category"] == inv.cats[0]["pk"]
+
+
+def test_hand_added_part_can_be_filed_where_you_choose():
+    from invscan.ingest import add_manual
+    inv = Fake()
+    cat = ensure_category_path(inv, ["Equipment", "Laptops"])
+    r = add_manual(inv, None, "ThinkPad T60", "IBM laptop", 1, 7, None, category=cat)
+    assert r.status == "created" and inv.parts[0]["category"] == cat
+    assert "Miscellaneous" not in [c["name"] for c in inv.cats]          # no needless category
+
+
+def test_scanned_bags_that_cannot_be_sorted_yet_stay_in_unsorted_for_a_retry():
+    from invscan.ingest import ingest
+    from invscan.parser import Scan
+    inv = Fake()
+    ingest(inv, Scan(mpn="X1", vendor="digikey", sales_order="1", load_id="2", qty=1), 7)   # DigiKey gave no data
+    assert [c["name"] for c in inv.cats] == ["Unsorted"]
+
+
+def test_new_part_request_accepts_a_category():
+    from invscan.server import NewPartIn
+    assert NewPartIn(name="x", qty=1, category=5).category == 5
+    assert NewPartIn(name="x", qty=1).category is None

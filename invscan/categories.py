@@ -37,3 +37,11 @@ def ensure_category_path(inv, names: list[str]) -> int | None:
 def list_categories(inv) -> list[dict]:
     return [{"id": c["pk"], "name": c["name"], "parent": c["parent"], "count": c.get("part_count", 0),
              "path": c.get("pathstring", c["name"])} for c in inv.list("part/category/", limit=1000)]
+
+
+MISC = "Miscellaneous"
+
+
+def misc_category(inv) -> int:
+    """Where parts with no supplier record live (a laptop, a hand-made board): kept, but not nagging as 'unsorted'."""
+    return ensure_category_path(inv, [MISC])

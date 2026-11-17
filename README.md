@@ -32,7 +32,8 @@ small bags into drawers.
 - **Categories like DigiKey's.** New parts are filed in DigiKey's own category tree (for example
   `Capacitors / Aluminum - Polymer Capacitors`). **Find > Browse by category** drills down with counts, and each
   category has search, sorting and DigiKey-style **filters** built from the part's specs (Capacitance, Voltage,
-  Package and so on). **Sort them** files existing Unsorted parts the same way, and Edit lets you change a part's
+  Package and so on). **Sort them** files existing Unsorted parts the same way, and parts with no supplier record at all (a laptop, a
+  hand-made board) go to **Miscellaneous**, which is also the default for parts you add by hand, and Edit lets you change a part's
   category by hand.
 - **McMaster-style browsing.** On a computer the category tree is a sidebar that expands in place, and **hovering**
   a part shows its photo, specs and where it is stored, while hovering a category shows its sub-categories and some

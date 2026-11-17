@@ -129,7 +129,7 @@ dialog{border:0;padding:0;background:var(--surface);color:var(--ink);width:min(5
 dialog::backdrop{background:rgba(6,16,12,.5);backdrop-filter:blur(2px)}
 dialog[open]{animation:up .26s var(--spring)}
 @keyframes up{from{transform:translateY(40px);opacity:0}}
-dialog form{padding:22px 20px calc(20px + env(safe-area-inset-bottom));display:grid;gap:12px}
+dialog form{padding:22px 20px calc(20px + env(safe-area-inset-bottom));display:grid;grid-template-columns:minmax(0,1fr);gap:12px}
 dialog h3{font-size:22px;letter-spacing:-.03em;line-height:1.15}
 dialog label{font-size:14px;font-weight:600;display:grid;gap:6px}
 .toast{position:fixed;left:50%;bottom:96px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:99px;font-size:14px;z-index:20;animation:pop .2s var(--spring);box-shadow:var(--sh-2)}
@@ -259,3 +259,6 @@ table.kv td:first-child{color:var(--muted);width:42%} table.kv tr:last-child td{
   .landing-tree{display:none} .landing-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px}
 }
 @media(hover:none){.pop{display:none!important}}
+
+dialog select.field,dialog input.field,dialog textarea.field{width:100%;max-width:100%;min-width:0}
+dialog select.field{text-overflow:ellipsis}

@@ -125,6 +125,7 @@ class NewPartIn(BaseModel):
     qty: int
     location_id: int | None = None
     note: str | None = None
+    category: int | None = None
 
 
 class PlaceIn(BaseModel):
@@ -249,7 +250,7 @@ def _bag_response(r, mpn: str, qty) -> dict:
 @app.post("/api/part/new", dependencies=[Depends(auth)])
 def new_part(body: NewPartIn):
     """Add a part that has no DigiKey code (by part number or DigiKey PN). A photo can be attached afterwards."""
-    r = add_manual(inv(), dk(), body.name, body.description or "", body.qty, body.location_id, body.note)
+    r = add_manual(inv(), dk(), body.name, body.description or "", body.qty, body.location_id, body.note, body.category)
     if r.status == "error":
         raise HTTPException(422, r.message)
     return _bag_response(r, body.name.strip(), body.qty)

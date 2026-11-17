@@ -77,18 +77,20 @@ async function uploadPhoto(partId, file) {
 }
 
 /* ---------- add by hand ---------- */
-function handSheet(prefill = "") {
+async function handSheet(prefill = "") {
+  try { await loadCats(); } catch { /* the category choice is optional */ }
   openSheet(`<h3>Add a part by hand</h3>
    <p class="muted sm">For parts with no DigiKey label. Type a name or part number. A DigiKey number such as 296-19733-5-ND fills in the details for you.</p>
    <label>Part number or name<input class="field" name="name" value="${esc(prefill)}" placeholder="Blue relay module" required autocomplete="off"></label>
    <label>Description (optional)<input class="field" name="description" placeholder="5V 1-channel, from the bench drawer" autocomplete="off"></label>
    <label>Quantity<input class="field" name="qty" type="number" inputmode="numeric" min="1" required placeholder="1"></label>
+   <label>Category<select class="field" name="category"><option value="">Automatic (DigiKey, else Miscellaneous)</option>${state.cats.slice().sort((a, b) => a.path.localeCompare(b.path)).map(c => `<option value="${c.id}">${esc(c.path.split("/").join(" / "))}</option>`).join("")}</select></label>
    <div class="photo-pick"><button class="btn sm" type="button" id="pickPhoto">Take or choose a photo</button><span id="photoName">So it shows up when you search</span></div>
    <input name="photo" id="photoIn" type="file" accept="image/*" capture="environment" hidden>
    ${state.bin ? `<div>${tag(state.bin.path)}</div>` : `<label>Where is it?<textarea class="field" name="note" required placeholder="Blue box under the desk, left side"></textarea></label>`}
    <button class="btn primary" type="submit">Add part</button>`,
     async f => {
-      const body = { name: f.get("name").trim(), description: (f.get("description") || "").trim(), qty: +f.get("qty"), location_id: state.bin?.id ?? null, note: (f.get("note") || "").trim() || null };
+      const body = { name: f.get("name").trim(), description: (f.get("description") || "").trim(), qty: +f.get("qty"), category: +f.get("category") || null, location_id: state.bin?.id ?? null, note: (f.get("note") || "").trim() || null };
       let r;
       try { r = await api("/api/part/new", body); } catch (e) { toast(e.message); return; }
       const photo = f.get("photo");
@@ -390,14 +392,16 @@ function organiseBanner() {
 function wireOrganise(root) { root.querySelectorAll("[data-organise]").forEach(b => b.onclick = organiseAll); }
 async function organiseAll() {
   openSheet(`<h3>Sorting parts</h3><p class="muted sm" id="orgMsg">Looking each one up at DigiKey...</p>`, null, null, "Close");
-  let moved = 0, skipped = 0;
+  let moved = 0, misc = 0, skipped = 0;
   try {
     for (let i = 0; i < 12; i++) {
-      const r = await api("/api/organise", { limit: 8 }); moved += r.moved; skipped += r.skipped;
-      const m = $("#orgMsg"); if (m) m.textContent = `Filed ${moved}, no match for ${skipped}${r.remaining ? ", " + r.remaining + " to go..." : ""}`;
+      const r = await api("/api/organise", { limit: 8 }); moved += r.moved; misc += r.misc || 0; skipped += r.skipped;
+      const m = $("#orgMsg"); if (m) m.textContent = `Filed ${moved + misc}${r.remaining ? ", " + r.remaining + " to go..." : ""}`;
       if (!r.remaining) break;
     }
-    const m = $("#orgMsg"); if (m) m.textContent = `Done. Filed ${moved} ${moved === 1 ? "part" : "parts"}.` + (skipped ? ` ${skipped} had no supplier data: open one and use Edit to pick a category.` : "");
+    const m = $("#orgMsg");
+    if (m) m.textContent = `Done. ${moved} filed by DigiKey's categories` + (misc ? `, ${misc} with no supplier record put in Miscellaneous` : "") + "."
+      + (skipped ? ` ${skipped} could not be matched at DigiKey and stay in Unsorted: open one and use Edit to pick a category.` : "");
   } catch (e) { const m = $("#orgMsg"); if (m) m.textContent = e.message; }
   await loadCats(); renderTrees(); if (state.view === "find") runFind(); else if (state.view === "cat") loadCat(state.catId);
 }
@@ -405,7 +409,8 @@ const CHEVRON = '<svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>';
 function treeKids() {
   const m = new Map();
   state.cats.filter(c => c.count > 0).forEach(c => { const k = c.parent || 0; if (!m.has(k)) m.set(k, []); m.get(k).push(c); });
-  for (const a of m.values()) a.sort((x, y) => (x.name === "Unsorted") - (y.name === "Unsorted") || x.name.localeCompare(y.name));
+  const rank = c => (c.parent ? 0 : c.name === "Unsorted" ? 2 : c.name === "Miscellaneous" ? 1 : 0);   // catch-all folders sit at the bottom
+  for (const a of m.values()) a.sort((x, y) => rank(x) - rank(y) || x.name.localeCompare(y.name));
   return m;
 }
 function ancestorsOf(id) {
