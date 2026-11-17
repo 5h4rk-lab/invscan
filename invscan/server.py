@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .browse import browse as browse_parts
+from .browse import browse as browse_parts, param_index
 from .browse import invalidate as invalidate_index
 from .categories import list_categories
 from .client import InvenTree
@@ -282,6 +282,35 @@ def browse(category: int | None = None, q: str = "", sort: str = "", f: list[str
             n, v = item.split("::", 1)
             selected.setdefault(n, []).append(v)
     return browse_parts(inv(), category, q.strip(), sort, selected)
+
+
+@app.get("/api/peek/part/{pk}", dependencies=[Depends(auth)])
+def peek_part(pk: int):
+    """Everything a hover preview needs for one part, in one small response."""
+    i = inv()
+    p = i.get(f"part/{pk}/")
+    specs = list(param_index(i).get(pk, {}).items())
+    stock = i.list("stock/", part=pk, in_stock=True, location_detail=True, limit=20)
+    return {"id": pk, "name": p["name"], "description": p["description"], "image": p.get("image") or p.get("thumbnail"),
+            "category": p.get("category_name"), "category_id": p.get("category"),
+            "total": sum(s["quantity"] for s in stock), "link": p.get("link"),
+            "specs": [{"name": n, "value": v} for n, v in specs[:12]], "more_specs": max(0, len(specs) - 12),
+            "where": [_where(s) for s in stock]}
+
+
+@app.get("/api/peek/category/{pk}", dependencies=[Depends(auth)])
+def peek_category(pk: int):
+    """Sub-categories and a few parts, for the hover preview on a category."""
+    cats = list_categories(inv())
+    me = next((c for c in cats if c["id"] == pk), None)
+    if not me:
+        raise HTTPException(404, "no such category")
+    page = inv().get("part/", category=pk, cascade="true", limit=8, ordering="-creation_date")
+    parts = page["results"] if isinstance(page, dict) else page
+    return {"id": pk, "name": me["name"], "path": me["path"], "count": me["count"],
+            "children": sorted([c for c in cats if c["parent"] == pk and c["count"]], key=lambda c: c["name"].lower()),
+            "parts": [{"id": p["pk"], "name": p["name"], "thumbnail": p.get("thumbnail"), "total": p.get("total_in_stock") or 0}
+                      for p in parts]}
 
 
 @app.post("/api/organise", dependencies=[Depends(auth)])

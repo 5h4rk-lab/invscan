@@ -13,6 +13,8 @@
 </head><body>
 <header class="top"><span class="mark"></span><b>invscan</b><span class="sp"></span><img class="hen" src="/static/hen.png" alt="" width="36" height="36"><button id="pinBtn" type="button">PIN</button></header>
 
+<aside id="treeSide" aria-label="Categories" hidden></aside>
+
 <main>
  <section id="v-home" class="view">
   <h1>What are you looking for?</h1>
@@ -57,6 +59,8 @@
  <a href="#scan" data-v="scan"><svg viewBox="0 0 24 24"><path d="M4 8V5a1 1 0 011-1h3M16 4h3a1 1 0 011 1v3M20 16v3a1 1 0 01-1 1h-3M8 20H5a1 1 0 01-1-1v-3M4 12h16"/></svg>Scan</a>
  <a href="#find" data-v="find"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>Find</a>
 </nav>
+
+<div id="pop" class="pop" role="tooltip" hidden></div>
 
 <dialog id="sheet"><form id="sheetForm" method="dialog"></form></dialog>
 

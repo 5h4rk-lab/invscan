@@ -34,6 +34,9 @@ small bags into drawers.
   category has search, sorting and DigiKey-style **filters** built from the part's specs (Capacitance, Voltage,
   Package and so on). **Sort them** files existing Unsorted parts the same way, and Edit lets you change a part's
   category by hand.
+- **McMaster-style browsing.** On a computer the category tree is a sidebar that expands in place, and **hovering**
+  a part shows its photo, specs and where it is stored, while hovering a category shows its sub-categories and some
+  of its parts. On a phone the same tree expands inline, and tapping a part's picture opens the same preview.
 - **Find it later.** Search by part number, description, specs or your own notes; results show the bin path.
 - **Item pages.** Photo, specs, every stock line, edit name/description, move to a bin, link to the InvenTree page.
 - **Everything is editable.** Tap any quantity to set the exact number (recorded as a stock count in InvenTree).

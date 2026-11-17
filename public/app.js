@@ -1,7 +1,7 @@
 ZXingWASM.setZXingModuleOverrides({ locateFile: p => "/static/vendor/" + p });
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const state = { pin: localStorage.pin || "", bin: JSON.parse(localStorage.bin || "null"), view: "", cam: null, paused: false, last: "", lastT: 0, lastSeen: 0, busy: false, firstHome: true, cats: [], cat: { id: null, q: "", sort: "relevance", f: {} } };
+const state = { pin: localStorage.pin || "", bin: JSON.parse(localStorage.bin || "null"), view: "", cam: null, paused: false, last: "", lastT: 0, lastSeen: 0, busy: false, firstHome: true, open: new Set(JSON.parse(localStorage.treeOpen || "[]")), hoverEl: null, cats: [], cat: { id: null, q: "", sort: "relevance", f: {} } };
 
 /* ---------- api ---------- */
 function setPin(p) {
@@ -315,7 +315,7 @@ $("#photo").onchange = async e => {
 
 /* ---------- home ---------- */
 function stockRow(s, extra = "") {
-  return `<div class="row">${plink(s.part_id, img(s.thumbnail, s.name), "thumb-link")}<div class="body"><div class="name">${plink(s.part_id, esc(s.name), "nm")}</div>
+  return `<div class="row" data-peek="${s.part_id}">${plink(s.part_id, img(s.thumbnail, s.name), "thumb-link")}<div class="body"><div class="name">${plink(s.part_id, esc(s.name), "nm")}</div>
     ${s.description ? `<div class="desc">${esc(s.description)}</div>` : ""}
     <div class="meta">${tag(s.path, s.unplaced)}</div>${s.note ? `<div class="note">${esc(s.note)}</div>` : ""}</div>
     <div class="qty">${qbtn(s.stock_id, s.name, s.qty)}${extra}</div></div>`;
@@ -357,7 +357,7 @@ async function runFind() {
   box.innerHTML = `<div class="card"><div class="sk" style="width:50%"></div><div class="sk" style="width:80%;margin-top:10px"></div></div>`;
   try {
     const r = await api("/api/find?q=" + encodeURIComponent(q));
-    box.innerHTML = r.length ? r.map(p => `<div class="card"><div class="head">${plink(p.id, img(p.thumbnail, p.name), "thumb-link")}<div class="body" style="flex:1;min-width:0"><div class="name">${plink(p.id, esc(p.name), "nm")}</div><div class="desc muted sm">${esc(p.description)}</div>${p.category ? `<div class="catline"><a href="#cat/${p.category_id}">${esc(p.category)}</a></div>` : ""}</div>
+    box.innerHTML = r.length ? r.map(p => `<div class="card" data-peek="${p.id}"><div class="head">${plink(p.id, img(p.thumbnail, p.name), "thumb-link")}<div class="body" style="flex:1;min-width:0"><div class="name">${plink(p.id, esc(p.name), "nm")}</div><div class="desc muted sm">${esc(p.description)}</div>${p.category ? `<div class="catline"><a href="#cat/${p.category_id}">${esc(p.category)}</a></div>` : ""}</div>
       <div class="qty">${esc(p.total)}<small>in stock</small></div></div>
       <div class="where">${p.where.length ? p.where.map(w => `<div class="w"><div>${tag(w.path, w.unplaced)}${qbtn(w.stock_id, p.name, w.qty)}</div>${w.note ? `<div class="note" style="margin:0">${esc(w.note)}</div>` : ""}<div class="rowacts"><button class="btn sm" data-place="${w.stock_id}" data-n="${esc(p.name)}" data-note="${esc(w.note)}">Move or edit note</button><button class="btn sm" data-printstock="${w.stock_id}" data-n="${esc(p.name)}">Print item label</button></div></div>`).join("") : '<div class="muted sm">No stock on hand.</div>'}</div></div>`).join("")
       : `<div class="list"><div class="empty-state">Nothing matches "${esc(q)}". Try fewer words, or part of the part number.<div style="margin-top:12px"><button class="btn sm" type="button" id="addFromFind">Add "${esc(q)}" by hand</button></div></div></div>`;
@@ -399,15 +399,115 @@ async function organiseAll() {
     }
     const m = $("#orgMsg"); if (m) m.textContent = `Done. Filed ${moved} ${moved === 1 ? "part" : "parts"}.` + (skipped ? ` ${skipped} had no supplier data: open one and use Edit to pick a category.` : "");
   } catch (e) { const m = $("#orgMsg"); if (m) m.textContent = e.message; }
-  await loadCats(); if (state.view === "find") runFind(); else if (state.view === "cat") loadCat(state.catId);
+  await loadCats(); renderTrees(); if (state.view === "find") runFind(); else if (state.view === "cat") loadCat(state.catId);
 }
+const CHEVRON = '<svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>';
+function treeKids() {
+  const m = new Map();
+  state.cats.filter(c => c.count > 0).forEach(c => { const k = c.parent || 0; if (!m.has(k)) m.set(k, []); m.get(k).push(c); });
+  for (const a of m.values()) a.sort((x, y) => (x.name === "Unsorted") - (y.name === "Unsorted") || x.name.localeCompare(y.name));
+  return m;
+}
+function ancestorsOf(id) {
+  const out = []; let c = state.cats.find(x => x.id === id);
+  while (c && c.parent) { out.push(c.parent); c = state.cats.find(x => x.id === c.parent); }
+  return out;
+}
+function treeHtml(activeId) {
+  const kids = treeKids(), open = new Set([...state.open, ...(activeId ? ancestorsOf(activeId) : [])]);
+  const row = (c, d) => {
+    const sub = kids.get(c.id) || [], isOpen = sub.length && open.has(c.id);
+    return `<div class="tn" style="--d:${d}"><button class="tg ${sub.length ? "" : "ghost"} ${isOpen ? "open" : ""}" type="button" data-tg="${c.id}" aria-label="${isOpen ? "Collapse" : "Expand"} ${esc(c.name)}" ${sub.length ? "" : "disabled tabindex=-1"}>${CHEVRON}</button><a class="tl ${c.id === activeId ? "on" : ""}" href="#cat/${c.id}" data-peekcat="${c.id}">${esc(c.name)}</a><span class="tc">${esc(c.count)}</span></div>`
+      + (isOpen ? sub.map(k => row(k, d + 1)).join("") : "");
+  };
+  return (kids.get(0) || []).map(c => row(c, 0)).join("");
+}
+function renderTrees() {
+  const active = state.view === "cat" ? state.catId : null;
+  $("#treeSide").innerHTML = `<div class="side-h">Categories</div>${treeHtml(active)}`;
+  const box = $("#treeBox"); if (box) box.innerHTML = treeHtml(null);
+}
+document.addEventListener("click", e => {
+  const g = e.target.closest("[data-tg]"); if (!g) return;
+  const id = +g.dataset.tg; state.open.has(id) ? state.open.delete(id) : state.open.add(id);
+  localStorage.treeOpen = JSON.stringify([...state.open]); renderTrees();
+});
 function renderTree(box) {
-  const roots = catKids(null).sort((a, b) => (a.name === "Unsorted") - (b.name === "Unsorted") || a.name.localeCompare(b.name));
+  const kids = treeKids(), roots = kids.get(0) || [];
   box.innerHTML = organiseBanner() + `<h2>Browse by category <small>${roots.length}</small></h2>` + (roots.length
-    ? `<div class="list">${roots.map(c => `<a class="row catrow" href="#cat/${c.id}"><div class="body"><div class="name">${esc(c.name)}</div></div><div class="qty">${esc(c.count)}</div></a>`).join("")}</div>`
+    ? `<div class="list tree landing-tree" id="treeBox">${treeHtml(null)}</div>
+       <div class="landing-grid">${roots.map(c => `<a class="catcard" href="#cat/${c.id}" data-peekcat="${c.id}"><span class="n">${esc(c.count)}</span><b>${esc(c.name)}</b><small>${esc((kids.get(c.id) || []).slice(0, 3).map(k => k.name).join(", "))}${(kids.get(c.id) || []).length > 3 ? ", ..." : ""}</small></a>`).join("")}</div>`
     : `<div class="list"><div class="empty-state">Nothing to browse yet. Scan a bag and its category appears here.</div></div>`);
   wireOrganise(box);
 }
+
+/* ---------- previews: hover on a computer, tap the picture on a phone ---------- */
+const HOVER = matchMedia("(hover: hover) and (pointer: fine)").matches;
+const peekCache = new Map();
+async function peekData(kind, id) {
+  const k = kind + id; if (!peekCache.has(k)) peekCache.set(k, api(`/api/peek/${kind}/${id}`));
+  try { return await peekCache.get(k); } catch (e) { peekCache.delete(k); throw e; }
+}
+function peekPartHtml(d) {
+  return `<div class="peek">${d.image ? `<img class="peek-img" src="${esc(d.image)}" alt="">` : ""}
+    <div><div class="name">${esc(d.name)}</div><div class="muted sm">${esc(d.description || "")}</div>${d.category ? `<div class="catline">${esc(d.category)}</div>` : ""}</div>
+    ${d.specs.length ? `<div class="list" style="box-shadow:none"><table class="kv">${d.specs.map(s => `<tr><td>${esc(s.name)}</td><td>${esc(s.value)}</td></tr>`).join("")}</table></div>${d.more_specs ? `<div class="sm muted">and ${d.more_specs} more</div>` : ""}` : ""}
+    <h4>${d.where.length ? `${esc(d.total)} in stock` : "Not in stock"}</h4>
+    ${d.where.length ? `<div class="where">${d.where.map(w => `<div class="w2">${tag(w.path, w.unplaced)}<span class="mono">${esc(w.qty)}</span>${w.note ? `<div class="note" style="margin:0;width:100%">${esc(w.note)}</div>` : ""}</div>`).join("")}</div>` : ""}</div>`;
+}
+function peekCatHtml(d) {
+  return `<div class="peek"><div><div class="name" style="font-family:var(--sans)">${esc(d.name)}</div><div class="muted sm">${esc(d.count)} ${d.count === 1 ? "part" : "parts"}</div></div>
+    ${d.children.length ? `<div><h4>Sub-categories</h4><div class="chips" style="margin:6px 0 0">${d.children.map(k => `<a class="chip" href="#cat/${k.id}">${esc(k.name)} <small>${esc(k.count)}</small></a>`).join("")}</div></div>` : ""}
+    ${d.parts.length ? `<div><h4>Parts</h4><div class="pgrid">${d.parts.map(p => `<a href="#part/${p.id}" title="${esc(p.name)}">${img(p.thumbnail, p.name)}<span>${esc(p.name)}</span></a>`).join("")}</div></div>` : ""}</div>`;
+}
+const pop = $("#pop"); let showT, hideT;
+addEventListener("mousemove", e => { state.mx = e.clientX; state.my = e.clientY; }, { passive: true });
+function placePop(rect, flyout) {
+  const w = pop.offsetWidth, h = pop.offsetHeight, vw = innerWidth, vh = innerHeight;
+  let x, y;
+  if (flyout) {  // a category in the sidebar: open beside the sidebar, level with the row
+    x = Math.max(rect.right, $("#treeSide").getBoundingClientRect().right) + 8; y = rect.top - 8;
+  } else {       // a part row is wide, so follow the pointer like a tooltip
+    x = (state.mx ?? rect.left) + 24; y = (state.my ?? rect.top) - 24;
+    if (x + w > vw - 8) x = Math.max(8, (state.mx ?? rect.right) - w - 24);
+  }
+  pop.style.left = x + "px"; pop.style.top = Math.max(68, Math.min(y, vh - h - 90)) + "px";
+}
+async function showPop(el) {
+  const part = el.dataset.peek, cat = el.dataset.peekcat;
+  try {
+    const d = part ? await peekData("part", part) : await peekData("category", cat);
+    if (state.hoverEl !== el) return;
+    pop.innerHTML = part ? peekPartHtml(d) : peekCatHtml(d); pop.hidden = false;
+    placePop(el.getBoundingClientRect(), !part && !!el.closest("#treeSide"));
+  } catch { /* a preview is a nicety */ }
+}
+function hidePop() { clearTimeout(showT); clearTimeout(hideT); hideT = setTimeout(() => { pop.hidden = true; state.hoverEl = null; }, 150); }
+document.addEventListener("mouseover", e => {
+  if (!HOVER) return;
+  const el = e.target.closest("[data-peek],[data-peekcat]");
+  if (e.target.closest("#pop")) { clearTimeout(hideT); return; }
+  if (!el) return hidePop();
+  if (el !== state.hoverEl) { clearTimeout(hideT); clearTimeout(showT); state.hoverEl = el; showT = setTimeout(() => showPop(el), 200); }
+  else clearTimeout(hideT);
+});
+document.addEventListener("mouseout", e => { if (HOVER && !(e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest("[data-peek],[data-peekcat],#pop"))) hidePop(); });
+addEventListener("hashchange", () => { pop.hidden = true; state.hoverEl = null; });
+addEventListener("scroll", () => { if (!pop.hidden) { pop.hidden = true; state.hoverEl = null; } }, { passive: true });
+async function peekSheet(id) {
+  try {
+    const d = await peekData("part", id);
+    openSheet(peekPartHtml(d) + `<a class="btn primary" href="#part/${id}" id="peekOpen">Open item</a>`, null, null, "Close");
+    $("#peekOpen").onclick = () => $("#sheet").close();
+  } catch (e) { toast(e.message); }
+}
+// touch screens have no hover: tapping a part's picture opens the same preview
+document.addEventListener("click", e => {
+  if (HOVER) return;
+  const th = e.target.closest(".thumb"), row = th && th.closest("[data-peek]");
+  if (row) { e.preventDefault(); e.stopPropagation(); peekSheet(+row.dataset.peek); }
+}, true);
+
 const SORTS = [["relevance", "Best match"], ["newest", "Newest"], ["name", "Name"], ["stock", "Most stock"]];
 async function loadCat(id) {
   if (!state.cats.length) await loadCats();
@@ -434,7 +534,7 @@ async function loadCatResults() {
       + (r.facets.length ? `<div class="facets">${r.facets.map((f, i) => `<button class="chip ${f.values.some(v => v.selected) ? "on" : ""}" data-f="${i}">${esc(f.name)} <small>${f.values.length}</small></button>`).join("")}</div>` : "")
       + (pills ? `<div class="pills">${pills}</div>` : "")
       + `<h2 style="margin-top:6px">${r.total} ${r.total === 1 ? "part" : "parts"}</h2>`
-      + (r.parts.length ? `<div class="list">${r.parts.map(p => `<a class="row catrow" href="#part/${p.id}">${img(p.thumbnail, p.name)}<div class="body"><div class="name">${esc(p.name)}</div><div class="desc">${esc(p.description || "")}</div>
+      + (r.parts.length ? `<div class="list">${r.parts.map(p => `<a class="row catrow" href="#part/${p.id}" data-peek="${p.id}">${img(p.thumbnail, p.name)}<div class="body"><div class="name">${esc(p.name)}</div><div class="desc">${esc(p.description || "")}</div>
           ${p.specs.length ? `<div class="specs">${p.specs.map(s => `<span class="sv" title="${esc(s.name)}">${esc(s.value)}</span>`).join("")}</div>` : ""}</div>
           <div class="qty">${esc(p.total)}<small>in stock</small></div></a>`).join("")}</div>`
         : `<div class="list"><div class="empty-state">No parts match.${Object.keys(c.f).length ? " Remove a filter to see more." : ""}</div></div>`);
@@ -507,6 +607,8 @@ function route() {
   }
   document.querySelectorAll(".tabs a").forEach(a => a.dataset.v === (v === "cat" ? "find" : v) ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"));
   v === "scan" ? startCam() : stopCam();
+  document.body.classList.toggle("has-tree", v === "find" || v === "cat");
+  if (v === "find" || v === "cat") (state.cats.length ? Promise.resolve() : loadCats()).then(renderTrees).catch(() => {});
   if (v === "home") loadHome();
   if (v === "find") { runFind(); $("#q").focus({ preventScroll: true }); }
   if (v === "part") loadPart(arg);
