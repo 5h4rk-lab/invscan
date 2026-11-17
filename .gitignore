@@ -15,3 +15,4 @@ labels/
 .claude-flow/
 .swarm/
 .claude/
+label_templates/marks/owner_*.png

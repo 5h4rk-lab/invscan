@@ -6,7 +6,7 @@ from .enrich import enrich_part
 from .locations import ensure_path
 from .notes import set_note
 from .params import mark_scanned
-from .parser import Scan
+from .parser import DK_PN, Scan
 
 UNSORTED = "Unsorted"
 
@@ -64,7 +64,8 @@ def unsorted_category(inv) -> int:
     return inv.post("part/category/", name=UNSORTED, description="Auto-created by scan, sort later")["pk"]
 
 
-def ingest(inv, scan: Scan, location_id: int | None, qty: int | None = None, dk=None, note: str | None = None) -> Result:
+def ingest(inv, scan: Scan, location_id: int | None, qty: int | None = None, dk=None, note: str | None = None,
+           description: str | None = None) -> Result:
     if not location_id and not (note or "").strip():
         return Result("error", message="no bin and no note: say where it went")
     qty = qty if qty is not None else scan.qty
@@ -86,7 +87,8 @@ def ingest(inv, scan: Scan, location_id: int | None, qty: int | None = None, dk=
     if new_part:
         part_id = inv.post(
             "part/",
-            name=name, IPN=name, description="Imported from DigiKey scan",
+            name=name, IPN=name,
+            description=description or ("Imported from DigiKey scan" if scan.sales_order else "Added by hand"),
             category=unsorted_category(inv), component=True, purchaseable=True,
         )["pk"]
 
@@ -104,7 +106,7 @@ def ingest(inv, scan: Scan, location_id: int | None, qty: int | None = None, dk=
         part=part_id, quantity=qty, location=location_id,
         batch=key if scan.sales_order and scan.load_id else "",
         notes=set_note(" ".join(x for x in (
-            f"DigiKey SO {scan.sales_order} invoice {scan.invoice} origin {scan.country}",
+            f"DigiKey SO {scan.sales_order} invoice {scan.invoice} origin {scan.country}" if scan.sales_order else "",
             f"lot {scan.lot_code}" if scan.lot_code else "",
             f"date code {scan.date_code}" if scan.date_code else "",
             f"ref {scan.customer_ref}" if scan.customer_ref else "") if x), note),
@@ -122,3 +124,20 @@ def ingest(inv, scan: Scan, location_id: int | None, qty: int | None = None, dk=
     if dk and not product and getattr(dk, "ambiguous", None):
         msg = "Several makers use this part number and the label has no DigiKey PN, so details were not filled in."
     return Result("created", part_id, item["pk"], new_part, msg)
+
+
+def add_manual(inv, dk, name: str, description: str, qty: int, location_id: int | None, note: str | None) -> Result:
+    """Add a part that has no DigiKey code: by part number, or by a DigiKey part number (looked up for you)."""
+    name = (name or "").strip()
+    if not name:
+        return Result("error", message="enter a part number")
+    if not qty or qty <= 0:
+        return Result("error", message="enter a quantity")
+    sku = name if DK_PN.match(name) else None
+    mpn = name
+    if sku and dk:  # a DigiKey PN tells us the real manufacturer part number
+        product = dk.lookup(sku, sku)
+        if product:
+            mpn = product["ManufacturerProductNumber"]
+    scan = Scan(mpn=mpn, qty=int(qty), supplier_sku=sku)
+    return ingest(inv, scan, location_id, int(qty), dk, note, description=(description or "").strip() or None)

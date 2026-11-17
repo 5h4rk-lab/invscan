@@ -26,6 +26,9 @@ small bags into drawers.
   a label printer registered in InvenTree (for example a Brother QL) or, if none is usable, to a PDF you can open
   or AirPrint. Scanning a bin label printed by InvenTree itself (`INV-SL..`) also works, and scanning an InvenTree
   part or stock label opens that item. "Create bin and print its label" does it in one step.
+- **Add parts that have no DigiKey label.** "Add a part by hand": type a name or a part number (a DigiKey number such as
+  `296-19733-5-ND` fills in the details), a quantity, and optionally take a photo. The photo becomes the part's picture
+  in search results. Then print a label with a QR that opens the item when scanned.
 - **Find it later.** Search by part number, description, specs or your own notes; results show the bin path.
 - **Item pages.** Photo, specs, every stock line, edit name/description, move to a bin, link to the InvenTree page.
 - **Everything is editable.** Tap any quantity to set the exact number (recorded as a stock count in InvenTree).
@@ -107,6 +110,14 @@ invscan uses InvenTree's label printing API, so whatever printer works in InvenT
 2. In the app: **Scan > Print label** for the current bin, **Scan > Set bin > Create bin and print its label** for a
    new box, or **Print part label / Print label** on an item page.
 3. Choose the template and printer; your choice is remembered on that device.
+
+### Part and stock labels
+
+`invscan_stock_label.html` (quantity and place) and `invscan_part_label.html` are 62 x 30 mm labels with a QR that
+opens the item in invscan when scanned, so any part without a DigiKey code can still be scanned later. Each label
+carries a small mark in the corner: a picture per InvenTree owner if `label_templates/marks/owner_<NAME>.png` exists
+(for example `owner_EV.png` for the user `EV`; these are local files and not committed), otherwise the default hen
+(`scripts/make_hen.py`). Run `scripts/install_labels.py` to install all three designs.
 
 ### Bin label design
 

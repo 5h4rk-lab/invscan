@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from .client import InvenTree
 from .digikey import DigiKey
-from .ingest import ingest
+from .ingest import add_manual, ingest
 from .locations import LABEL_PREFIX, add_room, ensure_path, has_room, parse_label, place_path
 from .notes import get_note, set_note
 from .parser import ScanError, parse_scan
@@ -99,6 +99,14 @@ class PrintIn(BaseModel):
     ids: list[int]
     template: int | None = None
     machine: str | None = None
+
+
+class NewPartIn(BaseModel):
+    name: str
+    description: str | None = None
+    qty: int
+    location_id: int | None = None
+    note: str | None = None
 
 
 class PlaceIn(BaseModel):
@@ -204,11 +212,37 @@ def scan(body: ScanIn):
             return hit
         raise HTTPException(422, str(e))
     r = ingest(inv(), s, body.location_id, body.qty, dk(), body.note)
+    return _bag_response(r, s.mpn, body.qty or s.qty)
+
+
+def _bag_response(r, mpn: str, qty) -> dict:
     part = inv().get(f"part/{r.part_id}/") if r.part_id else {}
     where = _where(inv().get(f"stock/{r.stock_id}/", location_detail=True)) if r.stock_id else {}
-    return {"kind": "bag", **r.__dict__, "mpn": s.mpn, "qty": where.get("qty", body.qty or s.qty),
+    return {"kind": "bag", **r.__dict__, "mpn": mpn, "qty": where.get("qty", qty),
             "name": part.get("name"), "description": part.get("description"),
             "thumbnail": part.get("thumbnail"), "path": where.get("path"), "note": where.get("note", "")}
+
+
+@app.post("/api/part/new", dependencies=[Depends(auth)])
+def new_part(body: NewPartIn):
+    """Add a part that has no DigiKey code (by part number or DigiKey PN). A photo can be attached afterwards."""
+    r = add_manual(inv(), dk(), body.name, body.description or "", body.qty, body.location_id, body.note)
+    if r.status == "error":
+        raise HTTPException(422, r.message)
+    return _bag_response(r, body.name.strip(), body.qty)
+
+
+@app.post("/api/part/{pk}/image", dependencies=[Depends(auth)])
+async def part_image(pk: int, request: Request):
+    """Replace the part photo. Body is the raw image (the page sends a downscaled JPEG)."""
+    data = await request.body()
+    if not data or len(data) > 4_000_000:
+        raise HTTPException(413, "photo is empty or too large")
+    if not (data[:3] == b"\xff\xd8\xff" or data[:8] == b"\x89PNG\r\n\x1a\n"):
+        raise HTTPException(415, "send a JPEG or PNG")
+    inv().patch_file(f"part/{pk}/", "image", f"part-{pk}.jpg" if data[:2] == b"\xff\xd8" else f"part-{pk}.png", data)
+    p = inv().get(f"part/{pk}/")
+    return {"image": p.get("image"), "thumbnail": p.get("thumbnail")}
 
 
 @app.get("/api/find", dependencies=[Depends(auth)])

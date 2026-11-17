@@ -164,3 +164,38 @@ def test_place_path_and_room_number():
     assert place_path("204", "Cabinet A", "Drawer 3", "Bin 2") == "Room 204 / Cabinet A / Drawer 3 / Bin 2"
     assert place_path("", "Cabinet A", "", "Bin 2") == "Cabinet A / Bin 2"
     assert place_path("", "", "", "") == ""
+
+
+def test_manual_part_without_digikey_code():
+    from invscan.ingest import add_manual
+    inv = Fake()
+    r = add_manual(inv, None, "WIDGET-9", "Handmade widget", 3, 7, None)
+    assert r.status == "created" and r.new_part
+    assert inv.parts[0]["name"] == "WIDGET-9" and inv.parts[0]["description"] == "Handmade widget"
+    assert inv.stock[0]["quantity"] == 3 and inv.stock[0]["location"] == 7
+    assert inv.stock[0]["batch"] == ""                                  # no digikey order, so no duplicate key
+    assert "DigiKey SO" not in inv.stock[0]["notes"]
+    # adding it again is allowed (a second handful) and reuses the part
+    r2 = add_manual(inv, None, "WIDGET-9", "", 2, 7, None)
+    assert r2.status == "created" and not r2.new_part and len(inv.parts) == 1 and len(inv.stock) == 2
+
+
+def test_manual_digikey_pn_is_resolved_to_the_mpn():
+    from invscan.ingest import add_manual
+    class DK:
+        ambiguous = []
+        calls = 0
+        def lookup(self, mpn, sku=None):
+            self.calls += 1
+            # first call resolves the DigiKey PN; later calls (enrichment) find nothing so the fake store is enough
+            return {"ManufacturerProductNumber": "REAL-MPN"} if self.calls == 1 else None
+    inv = Fake()
+    r = add_manual(inv, DK(), "296-19733-5-ND", "", 1, 7, None)
+    assert r.status == "created" and inv.parts[0]["name"] == "REAL-MPN"
+
+
+def test_manual_needs_a_place():
+    from invscan.ingest import add_manual
+    assert add_manual(Fake(), None, "X", "", 1, None, None).status == "error"
+    assert add_manual(Fake(), None, "", "", 1, 7, None).status == "error"
+    assert add_manual(Fake(), None, "X", "", 0, 7, None).status == "error"

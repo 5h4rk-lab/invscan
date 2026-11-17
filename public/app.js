@@ -61,6 +61,50 @@ document.addEventListener("click", e => {
   qtySheet(+b.dataset.id, b.dataset.name, b.dataset.val, b.dataset.after ? r => { b.textContent = r.qty; b.dataset.val = r.qty; } : null);
 });
 
+/* ---------- photos ---------- */
+async function shrinkPhoto(file, max = 1600) {
+  const bm = await createImageBitmap(file), k = Math.min(1, max / Math.max(bm.width, bm.height));
+  const c = document.createElement("canvas"); c.width = Math.round(bm.width * k); c.height = Math.round(bm.height * k);
+  c.getContext("2d").drawImage(bm, 0, 0, c.width, c.height);
+  return new Promise(r => c.toBlob(r, "image/jpeg", 0.82));
+}
+async function uploadPhoto(partId, file) {
+  const blob = await shrinkPhoto(file);
+  const r = await fetch(`/api/part/${partId}/image`, { method: "POST", headers: { "X-Pin": state.pin, "Content-Type": "image/jpeg" }, body: blob });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(typeof j.detail === "string" ? j.detail : "Photo upload failed (" + r.status + ")");
+  return j;
+}
+
+/* ---------- add by hand ---------- */
+function handSheet(prefill = "") {
+  openSheet(`<h3>Add a part by hand</h3>
+   <p class="muted sm">For parts with no DigiKey label. Type a name or part number. A DigiKey number such as 296-19733-5-ND fills in the details for you.</p>
+   <label>Part number or name<input class="field" name="name" value="${esc(prefill)}" placeholder="Blue relay module" required autocomplete="off"></label>
+   <label>Description (optional)<input class="field" name="description" placeholder="5V 1-channel, from the bench drawer" autocomplete="off"></label>
+   <label>Quantity<input class="field" name="qty" type="number" inputmode="numeric" min="1" required placeholder="1"></label>
+   <div class="photo-pick"><button class="btn sm" type="button" id="pickPhoto">Take or choose a photo</button><span id="photoName">So it shows up when you search</span></div>
+   <input name="photo" id="photoIn" type="file" accept="image/*" capture="environment" hidden>
+   ${state.bin ? `<div>${tag(state.bin.path)}</div>` : `<label>Where is it?<textarea class="field" name="note" required placeholder="Blue box under the desk, left side"></textarea></label>`}
+   <button class="btn primary" type="submit">Add part</button>`,
+    async f => {
+      const body = { name: f.get("name").trim(), description: (f.get("description") || "").trim(), qty: +f.get("qty"), location_id: state.bin?.id ?? null, note: (f.get("note") || "").trim() || null };
+      let r;
+      try { r = await api("/api/part/new", body); } catch (e) { toast(e.message); return; }
+      const photo = f.get("photo");
+      if (photo && photo.size) {
+        try { const u = await uploadPhoto(r.part_id, photo); r.thumbnail = u.thumbnail || r.thumbnail; }
+        catch (e) { toast("Added, but the photo failed: " + e.message); }
+      }
+      state.view === "scan" || (location.hash = "#scan");
+      showResult("ok", r.new_part ? "Added to inventory (new part)" : "Added to inventory", r, r.message ? esc(r.message) : "");
+      card("", `<div class="name">${esc(r.name)}</div><div class="sm muted">Added ${esc(r.qty)} to ${esc(r.path || "")}</div>`, r.thumbnail);
+    });
+  $("#pickPhoto").onclick = () => $("#photoIn").click();
+  $("#photoIn").onchange = e => { $("#photoName").textContent = e.target.files[0] ? "Photo ready: " + e.target.files[0].name : "So it shows up when you search"; };
+}
+$("#handBtn").onclick = () => handSheet();
+
 /* ---------- printing ---------- */
 async function printSheet(model, ids, title) {
   let info;
@@ -152,8 +196,9 @@ function showResult(kind, title, r, extra = "") {
      ${r.description ? `<div class="sm muted">${esc(r.description)}</div>` : ""}
      ${r.stock_id ? `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${tag(r.path || "No location", r.path === "Unplaced")} <span class="sm muted">quantity</span> ${qbtn(r.stock_id, r.name || r.mpn, r.qty).replace("data-qty", 'data-qty data-after="1"')}</div>` : ""}
      ${r.note ? `<div class="note">${esc(r.note)}</div>` : ""}${extra ? `<div class="sm">${extra}</div>` : ""}
-     ${r.part_id ? `<div class="acts">${plink(r.part_id, "Open item", "btn sm")}</div>` : ""}</div></div>`;
+     ${r.part_id ? `<div class="acts">${plink(r.part_id, "Open item", "btn sm")}${r.stock_id ? '<button class="btn sm" type="button" id="resPrint">Print label</button>' : ""}</div>` : ""}</div></div>`;
   $("#resX").onclick = () => { box.hidden = true; };
+  const rp = $("#resPrint"); if (rp) rp.onclick = () => printSheet("stockitem", [r.stock_id], r.name || r.mpn);
   const f = $("#finder"); f.classList.remove("f-ok", "f-dup", "f-err"); f.classList.add("f-" + kind); setTimeout(() => f.classList.remove("f-" + kind), 1200);
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
@@ -280,7 +325,8 @@ async function runFind() {
     box.innerHTML = r.length ? r.map(p => `<div class="card"><div class="head">${plink(p.id, img(p.thumbnail, p.name), "thumb-link")}<div class="body" style="flex:1;min-width:0"><div class="name">${plink(p.id, esc(p.name), "nm")}</div><div class="desc muted sm">${esc(p.description)}</div></div>
       <div class="qty">${esc(p.total)}<small>in stock</small></div></div>
       <div class="where">${p.where.length ? p.where.map(w => `<div class="w"><div>${tag(w.path, w.unplaced)}${qbtn(w.stock_id, p.name, w.qty)}</div>${w.note ? `<div class="note" style="margin:0">${esc(w.note)}</div>` : ""}<div><button class="btn sm" data-place="${w.stock_id}" data-n="${esc(p.name)}" data-note="${esc(w.note)}">Move or edit note</button></div></div>`).join("") : '<div class="muted sm">No stock on hand.</div>'}</div></div>`).join("")
-      : `<div class="list"><div class="empty-state">Nothing matches "${esc(q)}". Try fewer words, or part of the part number.</div></div>`;
+      : `<div class="list"><div class="empty-state">Nothing matches "${esc(q)}". Try fewer words, or part of the part number.<div style="margin-top:12px"><button class="btn sm" type="button" id="addFromFind">Add "${esc(q)}" by hand</button></div></div></div>`;
+    const af = $("#addFromFind"); if (af) af.onclick = () => handSheet(q);
     box.querySelectorAll("[data-place]").forEach(b => b.onclick = () => placeSheet(+b.dataset.place, b.dataset.n, b.dataset.note));
   } catch (e) { box.innerHTML = `<div class="card">${esc(e.message)}</div>`; }
 }
@@ -299,7 +345,7 @@ async function loadPart(id) {
     box.innerHTML = `<button class="back" id="back"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>Back</button>
      <div class="hero">${d.image ? `<img src="${esc(d.image)}" alt="">` : ""}<div><h1>${esc(d.name)}</h1><p class="muted" style="margin-top:6px">${esc(d.description || "No description yet.")}</p></div></div>
      <div class="facts"><div><small>In stock</small><b>${esc(d.total)}</b></div><div><small>Last scanned</small><b>${esc(d.last_scanned || "never")}</b></div><div><small>Category</small><b>${esc(d.category || "none")}</b></div></div>
-     <div class="extlinks"><button class="btn sm" id="editPart">Edit name and description</button><button class="btn sm" id="printPart">Print part label</button>${safeUrl(d.link) ? `<a class="btn sm" href="${esc(d.link)}" target="_blank" rel="noopener noreferrer">Datasheet</a>` : ""}<a class="btn sm" href="${esc(d.inventree_url)}" target="_blank" rel="noopener noreferrer">Open in InvenTree</a></div>
+     <div class="extlinks"><button class="btn sm" id="editPart">Edit name and description</button><button class="btn sm" id="printPart">Print part label</button><button class="btn sm" id="photoPart">${d.image ? "Change photo" : "Add photo"}</button><input id="photoFile" type="file" accept="image/*" capture="environment" hidden>${safeUrl(d.link) ? `<a class="btn sm" href="${esc(d.link)}" target="_blank" rel="noopener noreferrer">Datasheet</a>` : ""}<a class="btn sm" href="${esc(d.inventree_url)}" target="_blank" rel="noopener noreferrer">Open in InvenTree</a></div>
      <h2>Where it is <small>${d.stock.length} ${d.stock.length === 1 ? "line" : "lines"}</small></h2>
      <div class="list">${d.stock.length ? d.stock.map(s => `<div class="line"><div class="top2">${tag(s.path, s.unplaced)}<span class="sm muted">quantity ${qbtn(s.stock_id, d.name, s.qty)}</span></div>
         ${s.note ? `<div class="note" style="margin:0">${esc(s.note)}</div>` : ""}
@@ -315,6 +361,11 @@ async function loadPart(id) {
       async f => { try { await api(`/api/part/${id}/edit`, { name: f.get("name"), description: f.get("description") }); toast("Saved"); loadPart(id); } catch (e) { toast(e.message); } });
     box.querySelectorAll("[data-place]").forEach(b => b.onclick = () => placeSheet(+b.dataset.place, b.dataset.n, b.dataset.note));
     $("#printPart").onclick = () => printSheet("part", [id], d.name);
+    $("#photoPart").onclick = () => $("#photoFile").click();
+    $("#photoFile").onchange = async e => {
+      const f = e.target.files[0]; if (!f) return;
+      toast("Uploading photo..."); try { await uploadPhoto(id, f); toast("Photo saved"); loadPart(id); } catch (x) { toast(x.message); }
+    };
     box.querySelectorAll("[data-printstock]").forEach(b => b.onclick = () => printSheet("stockitem", [+b.dataset.printstock], d.name));
   } catch (e) { box.innerHTML = `<button class="back" id="back">Back</button><div class="card">Could not load this item: ${esc(e.message)}</div>`; $("#back").onclick = goBack; }
 }

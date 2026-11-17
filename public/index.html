@@ -11,7 +11,7 @@
 <link rel="preload" href="/static/fonts/bricolage.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/static/app.css">
 </head><body>
-<header class="top"><span class="mark"></span><b>invscan</b><span class="sp"></span><button id="pinBtn" type="button">PIN</button></header>
+<header class="top"><span class="mark"></span><b>invscan</b><span class="sp"></span><img class="hen" src="/static/hen.png" alt="" width="36" height="36"><button id="pinBtn" type="button">PIN</button></header>
 
 <main>
  <section id="v-home" class="view">
@@ -35,6 +35,7 @@
   </div>
   <button id="photoBtn" class="btn primary big" type="button">Photo of DigiKey bag</button>
   <input id="photo" type="file" accept="image/*" capture="environment" hidden>
+  <button id="handBtn" class="btn big" type="button" style="margin-top:10px;font-size:16px;padding:14px">No DigiKey label? Add a part by hand</button>
   <div class="actions"><input id="qty" class="field" inputmode="numeric" placeholder="Quantity if the label has none" style="flex:2"></div>
   <p class="muted sm" style="margin-top:10px">Bin labels scan live. Bags are most reliable as a photo: tap the code to focus, then shoot.</p>
   <div class="feed" id="feed"></div>

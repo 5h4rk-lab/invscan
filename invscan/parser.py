@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 
 GLYPHS = {"␝": "\x1d", "␞": "\x1e", "␄": "\x04"}
 _FIELD = re.compile(r"^(\d{0,2}[A-Z])(.*)$", re.S)
-_DK_PN = re.compile(r"^\d{1,6}-[A-Z0-9][A-Z0-9./\-]*-ND$", re.I)  # e.g. 296-19733-5-ND
+DK_PN = re.compile(r"^\d{1,6}-[A-Z0-9][A-Z0-9./\-]*-ND$", re.I)  # e.g. 296-19733-5-ND
 
 
 class ScanError(ValueError):
@@ -55,7 +55,7 @@ def parse_scan(raw: str) -> Scan:
     q = fields.get("Q", "")
     cust = fields.get("P", "")
     sku = fields.get("30P") or None
-    if not sku and _DK_PN.match(cust):  # some labels carry DigiKey's own PN in the customer-part field
+    if not sku and DK_PN.match(cust):  # some labels carry DigiKey's own PN in the customer-part field
         sku, cust = cust, ""
     return Scan(
         mpn=mpn,

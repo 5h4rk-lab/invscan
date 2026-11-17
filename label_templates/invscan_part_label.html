@@ -1,0 +1,66 @@
+{% extends "label/label_base.html" %}
+{% load l10n i18n barcode %}
+{# invscan part label: QR (opens the part when scanned), name, description and part number, plus a small mark. #}
+
+{% block style %}
+.qr {
+    position: absolute;
+    left: 1.5mm;
+    top: 4mm;
+    height: 22mm;
+    width: 22mm;
+}
+.info {
+    position: absolute;
+    left: 26mm;
+    right: 1.5mm;
+    top: 1.5mm;
+    bottom: 1.5mm;
+    font-family: Arial, Helvetica, sans-serif;
+    color: #000;
+}
+.name {
+    font-size: 12pt;
+    font-weight: 800;
+    line-height: 1.1;
+    max-height: 2.3em;
+    overflow: hidden;
+}
+.desc {
+    font-size: 7.5pt;
+    line-height: 1.15;
+    max-height: 3.5em;
+    overflow: hidden;
+    margin-top: 0.8mm;
+}
+.ipn {
+    position: absolute;
+    left: 0;
+    right: 11mm;
+    bottom: 0;
+    font-size: 7.5pt;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.mark {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    height: 9mm;
+}
+{% endblock style %}
+
+{% block content %}
+
+<img class='qr' alt="{% trans 'QR code' %}" src='{% qrcode qr_data %}'>
+
+<div class='info'>
+    <div class='name'>{{ part.name }}</div>
+    {% if part.description %}<div class='desc'>{{ part.description }}</div>{% endif %}
+    {% if part.IPN and part.IPN != part.name %}<div class='ipn'>{{ part.IPN }}</div>{% endif %}
+    __MARK__
+</div>
+
+{% endblock content %}

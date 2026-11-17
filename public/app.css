@@ -176,3 +176,7 @@ table.kv td:first-child{color:var(--muted);width:42%} table.kv tr:last-child td{
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px} dialog details{display:block}
 
 .roomsec{display:grid;gap:6px;padding:12px;border:1.5px solid var(--copper);border-radius:var(--r-m);background:var(--raise)}
+
+.top .hen{height:30px;width:auto;margin-right:2px;opacity:.95}
+.photo-pick{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.photo-pick span{font-size:14px;color:var(--muted)}
