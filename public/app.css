@@ -262,3 +262,9 @@ table.kv td:first-child{color:var(--muted);width:42%} table.kv tr:last-child td{
 
 dialog select.field,dialog input.field,dialog textarea.field{width:100%;max-width:100%;min-width:0}
 dialog select.field{text-overflow:ellipsis}
+
+/* "you already have this part" */
+.have{display:grid;gap:8px;padding:10px 12px;background:var(--raise);border-left:4px solid var(--warn);border-radius:0 var(--r-m) var(--r-m) 0}
+.have>b{font-size:14.5px}
+.hv{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+a.thumb-link,a.thumb-link *{text-decoration:none}

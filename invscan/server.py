@@ -16,7 +16,7 @@ from .categories import list_categories
 from .client import InvenTree
 from .digikey import DigiKey
 from .mouser import MOUSER_PN, Mouser, mpn_from_pn
-from .ingest import add_manual, ingest
+from .ingest import add_manual, elsewhere, find_part, ingest
 from .locations import LABEL_PREFIX, add_room, ensure_path, has_room, parse_label, place_path
 from .notes import get_note, set_note
 from .organise import organise
@@ -99,6 +99,11 @@ class RoomIn(BaseModel):
 
 class QtyIn(BaseModel):
     qty: float
+
+
+class CheckIn(BaseModel):
+    raw: str
+    mouser_pn: str | None = None
 
 
 class OrganiseIn(BaseModel):
@@ -267,6 +272,24 @@ async def part_image(pk: int, request: Request):
     inv().patch_file(f"part/{pk}/", "image", f"part-{pk}.jpg" if data[:2] == b"\xff\xd8" else f"part-{pk}.png", data)
     p = inv().get(f"part/{pk}/")
     return {"image": p.get("image"), "thumbnail": p.get("thumbnail")}
+
+
+@app.post("/api/check", dependencies=[Depends(auth)])
+def check(body: CheckIn):
+    """Do you already have the part on this label, and where? Read-only: nothing is created."""
+    try:
+        s = parse_scan(body.raw)
+    except ScanError:
+        return {"others": []}
+    if s.vendor == "mouser":
+        pn = (body.mouser_pn or "").strip()
+        if not MOUSER_PN.match(pn):
+            return {"others": [], "need_pn": True}
+        s.supplier_sku, s.mpn = pn, mpn_from_pn(pn)
+    part_id, _ = find_part(inv(), s, None)
+    if not part_id:
+        return {"others": []}
+    return {"others": elsewhere(inv(), part_id), "name": inv().get(f"part/{part_id}/")["name"], "part_id": part_id}
 
 
 @app.get("/api/categories", dependencies=[Depends(auth)])

@@ -117,3 +117,30 @@ def test_new_part_request_accepts_a_category():
     from invscan.server import NewPartIn
     assert NewPartIn(name="x", qty=1, category=5).category == 5
     assert NewPartIn(name="x", qty=1).category is None
+
+
+def _scan(order):
+    from invscan.parser import Scan
+    return Scan(mpn="WIDGET-1", vendor="digikey", sales_order=order, load_id=order + "1", qty=5)
+
+
+def test_a_second_bag_of_the_same_part_reports_where_you_already_keep_it():
+    from invscan.ingest import ingest
+    inv = Fake()
+    first = ingest(inv, _scan("100"), 5)
+    assert first.status == "created" and first.others == []                    # nothing elsewhere yet
+    inv.stock[0]["location_detail"] = {"pathstring": "Cabinet A/Drawer 3/Bin 2"}
+    second = ingest(inv, _scan("200"), 9)
+    assert second.status == "created" and not second.new_part
+    assert len(second.others) == 1
+    o = second.others[0]
+    assert o["path"] == "Cabinet A/Drawer 3/Bin 2" and o["qty"] == 5 and o["stock_id"] == inv.stock[0]["pk"]
+
+
+def test_other_parts_are_not_reported():
+    from invscan.ingest import ingest
+    from invscan.parser import Scan
+    inv = Fake()
+    ingest(inv, _scan("100"), 5)
+    r = ingest(inv, Scan(mpn="OTHER-9", vendor="digikey", sales_order="300", load_id="301", qty=1), 9)
+    assert r.others == []

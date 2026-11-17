@@ -199,6 +199,11 @@ function card(cls, html, thumb) {
   d.innerHTML = (thumb ? img(thumb) : "") + `<div class="body">${html}</div>`;
   $("#feed").prepend(d); navigator.vibrate?.(cls ? [70, 50, 70] : 50);
 }
+function haveHtml(r) {
+  const oth = r.others || [];
+  if (!oth.length) return "";
+  return `<div class="have"><b>You already have this part</b>${oth.map(o => `<div class="hv">${tag(o.path, o.unplaced)}<span class="mono">${esc(o.qty)} there</span>${o.path === r.path ? '<span class="sm muted">same bin</span>' : `<button class="btn sm primary" type="button" data-moveto="${esc(o.path)}">Put this bag there</button>`}</div>`).join("")}</div>`;
+}
 function showResult(kind, title, r, extra = "") {
   const box = $("#result"), cls = kind === "ok" ? "" : kind;
   box.className = "result " + cls; box.hidden = false;
@@ -208,9 +213,15 @@ function showResult(kind, title, r, extra = "") {
      ${r.description ? `<div class="sm muted">${esc(r.description)}</div>` : ""}
      ${r.stock_id ? `<div class="rline">${tag(r.path || "No location", r.path === "Unplaced")}</div><div class="rline"><span class="sm muted">Quantity</span>${qbtn(r.stock_id, r.name || r.mpn, r.qty).replace("data-qty", 'data-qty data-after="1"')}</div>` : ""}
      ${r.note ? `<div class="note">${esc(r.note)}</div>` : ""}${extra ? `<div class="sm">${extra}</div>` : ""}
+     ${kind === "ok" ? haveHtml(r) : ""}
      ${r.part_id ? `<div class="acts">${plink(r.part_id, "Open item", "btn sm")}${r.stock_id ? '<button class="btn sm primary" type="button" id="resPrint">Print item label</button>' : ""}</div>` : ""}</div></div>`;
   $("#resX").onclick = () => { box.hidden = true; };
   const rp = $("#resPrint"); if (rp) rp.onclick = () => printSheet("stockitem", [r.stock_id], r.name || r.mpn);
+  box.querySelectorAll("[data-moveto]").forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    try { const w = await api(`/api/stock/${r.stock_id}/place`, { path: b.dataset.moveto, note: null }); toast("Moved to " + w.path); showResult("ok", "Moved in with the rest", { ...r, path: w.path, others: [] }); }
+    catch (e) { toast(e.message); b.disabled = false; }
+  });
   const f = $("#finder"); f.classList.remove("f-ok", "f-dup", "f-err"); f.classList.add("f-" + kind); setTimeout(() => f.classList.remove("f-" + kind), 1200);
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
@@ -249,11 +260,19 @@ function handleCode(text, extra = {}) {
   const mpn = (text.match(/1P([^\x1d␝]+)/) || [])[1] || "this bag";
   openSheet(`<h3>Where is it going?</h3>
     <p class="muted sm"><span class="mono">${esc(mpn)}</span> has no bin. Write where you put it and you can search for these words later.</p>
+    <div id="haveSlot"></div>
     <textarea class="field" name="note" placeholder="Blue box under the desk, left side" required autofocus></textarea>
     <button class="btn primary" type="submit">Save with note</button>
     <button class="btn" type="button" id="setbin">Set a bin instead</button>`,
     f => sendBag(text, f.get("note").trim(), extra));
   $("#setbin").onclick = () => { $("#sheet").close(); setTimeout(binSheet, 60); };
+  api("/api/check", { raw: text, mouser_pn: extra.mouser_pn || null }).then(c => {
+    const slot = $("#haveSlot"); if (!slot || !(c.others || []).length) return;
+    slot.innerHTML = `<div class="have"><b>You already have ${esc(c.name || "this part")}</b>${c.others.map(o => `<div class="hv">${tag(o.path, o.unplaced)}<span class="mono">${esc(o.qty)} there</span><button class="btn sm primary" type="button" data-usebin="${esc(o.path)}">Put it there</button></div>`).join("")}</div>`;
+    slot.querySelectorAll("[data-usebin]").forEach(bt => bt.onclick = async () => {
+      try { setBin(await api("/api/bin", { path: bt.dataset.usebin })); $("#sheet").close(); sendBag(text, null, extra); } catch (e) { toast(e.message); }
+    });
+  }).catch(() => {});
 }
 // A Mouser square code has no part number: it is in the long "P/N:" barcode on the same label.
 const isMouserCode = s => /(\x1d|<GS>|\u241d)14K\d/.test(s) && !/(\x1d|<GS>|\u241d)1P/.test(s);

@@ -1,5 +1,5 @@
 """Turn a parsed DigiKey or Mouser scan into InvenTree stock in a given location."""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 
 from .categories import digikey_path, ensure_category_path, misc_category
@@ -19,6 +19,7 @@ class Result:
     stock_id: int | None = None
     new_part: bool = False
     message: str = ""
+    others: list = field(default_factory=list)  # the same part already in stock elsewhere
 
 
 def batch_key(scan: Scan) -> str:
@@ -35,6 +36,18 @@ def batch_key(scan: Scan) -> str:
     if set(scan.load_id) == {"9"}:
         key += f"-{scan.digikey_part_id or scan.mpn}"
     return key
+
+
+def elsewhere(inv, part_id: int, exclude: int | None = None) -> list[dict]:
+    """Stock lines of this part already on hand, so you know you have it and where it lives."""
+    out = []
+    for s in inv.list("stock/", part=part_id, in_stock="true", location_detail="true", limit=50):
+        if s["pk"] == exclude or not s.get("quantity"):
+            continue
+        loc = s.get("location_detail") or {}
+        out.append({"stock_id": s["pk"], "path": loc.get("pathstring") or "No location", "qty": s["quantity"],
+                    "location_id": s.get("location"), "unplaced": loc.get("pathstring") == "Unplaced"})
+    return out
 
 
 def find_part(inv, scan: Scan, product: dict | None):
@@ -148,7 +161,7 @@ def ingest(inv, scan: Scan, location_id: int | None, qty: int | None = None, dk=
     msg = ""
     if dk and not product and not mouser_label and getattr(dk, "ambiguous", None):
         msg = "Several makers use this part number and the label has no DigiKey PN, so details were not filled in."
-    return Result("created", part_id, item["pk"], new_part, msg)
+    return Result("created", part_id, item["pk"], new_part, msg, [] if new_part else elsewhere(inv, part_id, item["pk"]))
 
 
 def add_manual(inv, dk, name: str, description: str, qty: int, location_id: int | None, note: str | None,

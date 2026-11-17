@@ -38,6 +38,9 @@ small bags into drawers.
 - **McMaster-style browsing.** On a computer the category tree is a sidebar that expands in place, and **hovering**
   a part shows its photo, specs and where it is stored, while hovering a category shows its sub-categories and some
   of its parts. On a phone the same tree expands inline, and tapping a part's picture opens the same preview.
+- **Spots duplicates of what you already hold.** Scan a bag of a part you already have and the result says
+  "You already have this part", shows where, and has **Put this bag there**. With no bin set, the note sheet offers
+  the place you already keep it.
 - **Find it later.** Search by part number, description, specs or your own notes; results show the bin path.
 - **Item pages.** Photo, specs, every stock line, edit name/description, move to a bin, link to the InvenTree page.
 - **Everything is editable.** Tap any quantity to set the exact number (recorded as a stock count in InvenTree).

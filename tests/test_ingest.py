@@ -13,7 +13,9 @@ class Fake:
 
     def list(self, path, **q):
         if path == "stock/":
-            return [s for s in self.stock if s["batch"] == q["batch"]]
+            if "batch" in q:
+                return [s for s in self.stock if s["batch"] == q["batch"]]
+            return [s for s in self.stock if s.get("part") == q.get("part")]
         if path == "part/":
             return [p for p in self.parts if q["search"].lower() in p["name"].lower()]
         if path == "part/category/":
