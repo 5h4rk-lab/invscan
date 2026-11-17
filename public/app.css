@@ -59,12 +59,12 @@ textarea.field{resize:vertical;min-height:84px}
 
 /* label-tape tag: how every location is drawn, like the labels on a real drawer */
 .tag{display:inline-block;font:500 12.5px/1 var(--mono);background:var(--tape);color:#2A2410;border:1px solid var(--tape-line);padding:6px 9px 6px 12px;
-  clip-path:polygon(7px 0,100% 0,100% 100%,7px 100%,0 50%);max-width:100%;white-space:normal;overflow-wrap:anywhere;line-height:1.35;vertical-align:middle}
+  clip-path:polygon(7px 0,100% 0,100% 100%,7px 100%,0 50%);max-width:100%;white-space:normal;overflow-wrap:break-word;line-height:1.35;vertical-align:middle}
 .tag.none{background:transparent;border-style:dashed;color:var(--muted)}
 .tag.warn{background:#F2D9A0;border-color:#C79A3E}
 
 /* stat sentence */
-.stats{display:flex;gap:22px;flex-wrap:wrap;margin:18px 0 0}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(70px,1fr));gap:14px;margin:20px 0 0}
 .stats div{display:flex;flex-direction:column}
 .stats b{font-size:28px;letter-spacing:-.04em;line-height:1;font-weight:650}
 .stats span{font-size:13px;color:var(--muted);margin-top:4px}
@@ -94,9 +94,10 @@ textarea.field{resize:vertical;min-height:84px}
 @keyframes sk{to{background-position:-200% 0}}
 
 /* scan */
-.binbar{display:flex;gap:12px;align-items:center;padding:12px 14px;background:var(--surface);border:1.5px solid var(--line);border-radius:var(--r-l)}
+.binbar{display:grid;gap:12px;padding:14px;background:var(--surface);border:1.5px solid var(--line);border-radius:var(--r-l)}
 .binbar.on{border-color:var(--ok)} .binbar.note{border-color:var(--copper)}
-.binbar .t{flex:1;min-width:0} .binbar .t small{display:block;color:var(--muted);font-size:13px}
+.binhead{min-width:0} .binhead small{display:block;color:var(--muted);font-size:13px;margin-bottom:6px;line-height:1.35}
+.binacts{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:8px} .binacts .btn{padding:10px 8px}
 .finder{position:relative;margin:14px 0;border-radius:var(--r-l);overflow:hidden;background:#000;aspect-ratio:16/10;transition:box-shadow .2s}
 .finder video{width:100%;height:100%;object-fit:cover;display:block}
 .finder i{position:absolute;width:34px;height:34px;border:3px solid var(--copper);transition:transform .2s var(--spring)}
@@ -114,7 +115,7 @@ textarea.field{resize:vertical;min-height:84px}
 .fc .body{flex:1;min-width:0} .fc .name{font:500 15px var(--mono)}
 
 /* tab bar */
-.tabs{position:fixed;left:0;right:0;bottom:0;z-index:6;display:flex;justify-content:center;gap:6px;padding:8px 12px calc(8px + env(safe-area-inset-bottom));background:color-mix(in srgb,var(--surface) 88%,transparent);backdrop-filter:blur(14px);border-top:1px solid var(--line)}
+.tabs{position:fixed;left:0;right:0;bottom:0;z-index:6;display:flex;justify-content:center;gap:6px;padding:8px 12px calc(8px + env(safe-area-inset-bottom));background:var(--surface);border-top:1px solid var(--line)}
 .tabs a{flex:1;max-width:200px;text-align:center;padding:9px 6px 7px;border-radius:var(--r-m);color:var(--muted);text-decoration:none;font-size:13px;font-weight:550;transition:transform .12s var(--spring),background .12s}
 .tabs a svg{display:block;margin:0 auto 3px;width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .tabs a:active{transform:scale(.95)}
@@ -180,3 +181,17 @@ table.kv td:first-child{color:var(--muted);width:42%} table.kv tr:last-child td{
 .top .hen{height:30px;width:auto;margin-right:2px;opacity:.95}
 .photo-pick{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .photo-pick span{font-size:14px;color:var(--muted)}
+
+/* result card rows */
+.rline{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.qbtn{min-height:34px;min-width:48px}
+
+/* item page: one primary action row, quiet links under it, compact facts */
+.facts{grid-template-columns:repeat(3,1fr);gap:8px}
+.facts div{padding:9px 10px;min-width:0} .facts small{font-size:12px} .facts b{display:block;font-size:14.5px}
+.actions2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+.actions2 .btn{width:100%}
+.linkrow{display:flex;gap:4px;flex-wrap:wrap;margin-top:8px}
+.linkrow .btn{padding:7px 10px;font-weight:550}
+.line .rowacts{display:flex;gap:8px;flex-wrap:wrap}
+.btn.primary.sm{padding:9px 14px}

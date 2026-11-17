@@ -21,7 +21,7 @@ async function api(path, body, retry = true) {
   return j;
 }
 const img = (u, n) => u ? `<img class="thumb" src="${esc(u)}" alt="" loading="lazy">` : `<div class="thumb empty">${esc((n || "?").slice(0, 3))}</div>`;
-const tag = (path, unplaced) => `<span class="tag${unplaced ? " warn" : ""}" title="${esc(path)}">${esc(path)}</span>`;
+const tag = (path, unplaced) => `<span class="tag${unplaced ? " warn" : ""}" title="${esc(path)}">${esc(path).split("/").map(s => s.replace(/ /g, "&nbsp;")).join("/&#8203;")}</span>`;  // lines break only after a slash
 const safeUrl = u => /^https?:\/\//i.test(u || "") ? u : "";
 const plink = (id, html, cls = "") => `<a class="${cls}" href="#part/${id}">${html}</a>`;
 const CHECK = '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>', WARN = '<svg viewBox="0 0 24 24"><path d="M12 7v6M12 17h.01"/></svg>', CROSS = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
@@ -99,6 +99,7 @@ function handSheet(prefill = "") {
       state.view === "scan" || (location.hash = "#scan");
       showResult("ok", r.new_part ? "Added to inventory (new part)" : "Added to inventory", r, r.message ? esc(r.message) : "");
       card("", `<div class="name">${esc(r.name)}</div><div class="sm muted">Added ${esc(r.qty)} to ${esc(r.path || "")}</div>`, r.thumbnail);
+      if (r.stock_id) setTimeout(() => printSheet("stockitem", [r.stock_id], r.name), 150);  // a part added by hand has no label yet
     });
   $("#pickPhoto").onclick = () => $("#photoIn").click();
   $("#photoIn").onchange = e => { $("#photoName").textContent = e.target.files[0] ? "Photo ready: " + e.target.files[0].name : "So it shows up when you search"; };
@@ -114,8 +115,9 @@ async function printSheet(model, ids, title) {
   const up = info.printers.filter(p => p.ok), down = info.printers.filter(p => !p.ok);
   const outDefault = up.find(p => p.id === saved.machine)?.id || up[0]?.id || "pdf";
   const tplDefault = tpls.find(x => x.id === saved[model])?.id || (tpls.find(x => /^invscan/i.test(x.name)) || tpls.find(x => x.name.includes("QR + Text")) || tpls[0]).id;
-  openSheet(`<h3>Print label</h3><p class="muted sm">${esc(title)}</p>
-    <label>Label<select class="field" name="template">${tpls.map(x => `<option value="${x.id}" ${x.id === tplDefault ? "selected" : ""}>${esc(x.name)} (${esc(x.size)})</option>`).join("")}</select></label>
+  const kind = { stocklocation: "bin label", stockitem: "item label", part: "part label" }[model] || "label";
+  openSheet(`<h3>Print ${kind}</h3><p class="muted sm">${esc(title)}</p>
+    <label>Label<select class="field" name="template">${tpls.map(x => `<option value="${x.id}" ${x.id === tplDefault ? "selected" : ""}>${esc(/\d+x\d+/.test(x.name) ? x.name : x.name + " (" + x.size + ")")}</option>`).join("")}</select></label>
     <label>Send to<select class="field" name="out">${up.map(p => `<option value="${esc(p.id)}" ${p.id === outDefault ? "selected" : ""}>${esc(p.name)}</option>`).join("")}<option value="pdf" ${outDefault === "pdf" ? "selected" : ""}>PDF to open or AirPrint</option></select></label>
     ${down.length ? `<div class="note">${down.map(p => `${esc(p.name)} is not available in InvenTree: ${esc(p.error || "inactive")}.`).join("<br>")}</div>` : ""}
     <button class="btn primary" type="submit">Print</button>`,
@@ -136,8 +138,15 @@ async function printSheet(model, ids, title) {
 /* ---------- bin ---------- */
 function renderBin() {
   const b = $("#binbar");
-  if (state.bin) { b.className = "binbar on"; b.innerHTML = `<div class="t"><small>Putting bags in</small>${tag(state.bin.path)}</div><div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">${hasRoom(state.bin.path) ? "" : '<button class="btn sm" data-room>Add room</button>'}<button class="btn sm" data-print>Print label</button><button class="btn sm" data-bin>Change</button></div>`; }
-  else { b.className = "binbar note"; b.innerHTML = `<div class="t"><b>No bin set</b><small>Scan a bin label, or write a note about where each bag goes.</small></div><button class="btn sm" data-bin>Set bin</button>`; }
+  if (state.bin) {
+    b.className = "binbar on";
+    b.innerHTML = `<div class="binhead"><small>Putting bags in</small>${tag(state.bin.path)}</div>
+      <div class="binacts">${hasRoom(state.bin.path) ? "" : '<button class="btn sm" data-room>Add room</button>'}<button class="btn sm" data-print>Print bin label</button><button class="btn sm" data-bin>Change</button></div>`;
+  } else {
+    b.className = "binbar note";
+    b.innerHTML = `<div class="binhead"><b>No bin set</b><small>Scan a bin label, or write a note about where each bag goes.</small></div>
+      <div class="binacts"><button class="btn sm primary" data-bin>Set bin</button></div>`;
+  }
   b.querySelector("[data-bin]").onclick = binSheet;
   const rb = b.querySelector("[data-room]"); if (rb) rb.onclick = roomSheet;
   const pb = b.querySelector("[data-print]"); if (pb) pb.onclick = () => printSheet("stocklocation", [state.bin.id], state.bin.path);
@@ -157,7 +166,8 @@ function binSheet() {
    <p class="muted sm">Point the camera at a bin label, or fill in the place. Anything new is created, and you can print its label.</p>
    <div class="roomsec"><label>Room number<input class="field" name="room" inputmode="text" placeholder="204" value="${esc(last.room || "")}" autocomplete="off"></label>
     <span class="sm muted">Typing 204 saves it as Room 204 and prints it in a highlighted block on the label.</span></div>
-   <div class="grid2">${BIN_FIELDS.slice(1).map(([k, l, ph]) => `<label>${l}<input class="field" name="${k}" placeholder="${ph}" value="${esc(k === "cabinet" ? last.cabinet || "" : "")}" autocomplete="off"></label>`).join("")}</div>
+   <label>Cabinet or shelf<input class="field" name="cabinet" placeholder="Cabinet A" value="${esc(last.cabinet || "")}" autocomplete="off"></label>
+   <div class="grid2"><label>Drawer<input class="field" name="drawer" placeholder="Drawer 3" autocomplete="off"></label><label>Bin or box<input class="field" name="bin" placeholder="Bin 2" autocomplete="off"></label></div>
    <details><summary class="sm muted" style="cursor:pointer">Type a full path instead</summary><input class="field mono" name="path" placeholder="Room 204 / Cabinet A / Drawer 3 / Bin 2" style="margin-top:8px"></details>
    <button class="btn primary" type="submit">Use this bin</button>
    <button class="btn" type="button" id="mkprint">Create bin and print its label</button>
@@ -194,9 +204,9 @@ function showResult(kind, title, r, extra = "") {
    <div class="inner">${r.part_id ? plink(r.part_id, img(r.thumbnail, r.name), "thumb-link") : ""}
     <div class="body">${r.part_id ? plink(r.part_id, esc(r.name || r.mpn), "nm") : `<span class="mono">${esc(r.mpn || "")}</span>`}
      ${r.description ? `<div class="sm muted">${esc(r.description)}</div>` : ""}
-     ${r.stock_id ? `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${tag(r.path || "No location", r.path === "Unplaced")} <span class="sm muted">quantity</span> ${qbtn(r.stock_id, r.name || r.mpn, r.qty).replace("data-qty", 'data-qty data-after="1"')}</div>` : ""}
+     ${r.stock_id ? `<div class="rline">${tag(r.path || "No location", r.path === "Unplaced")}</div><div class="rline"><span class="sm muted">Quantity</span>${qbtn(r.stock_id, r.name || r.mpn, r.qty).replace("data-qty", 'data-qty data-after="1"')}</div>` : ""}
      ${r.note ? `<div class="note">${esc(r.note)}</div>` : ""}${extra ? `<div class="sm">${extra}</div>` : ""}
-     ${r.part_id ? `<div class="acts">${plink(r.part_id, "Open item", "btn sm")}${r.stock_id ? '<button class="btn sm" type="button" id="resPrint">Print label</button>' : ""}</div>` : ""}</div></div>`;
+     ${r.part_id ? `<div class="acts">${plink(r.part_id, "Open item", "btn sm")}${r.stock_id ? '<button class="btn sm primary" type="button" id="resPrint">Print item label</button>' : ""}</div>` : ""}</div></div>`;
   $("#resX").onclick = () => { box.hidden = true; };
   const rp = $("#resPrint"); if (rp) rp.onclick = () => printSheet("stockitem", [r.stock_id], r.name || r.mpn);
   const f = $("#finder"); f.classList.remove("f-ok", "f-dup", "f-err"); f.classList.add("f-" + kind); setTimeout(() => f.classList.remove("f-" + kind), 1200);
@@ -324,14 +334,16 @@ async function runFind() {
     const r = await api("/api/find?q=" + encodeURIComponent(q));
     box.innerHTML = r.length ? r.map(p => `<div class="card"><div class="head">${plink(p.id, img(p.thumbnail, p.name), "thumb-link")}<div class="body" style="flex:1;min-width:0"><div class="name">${plink(p.id, esc(p.name), "nm")}</div><div class="desc muted sm">${esc(p.description)}</div></div>
       <div class="qty">${esc(p.total)}<small>in stock</small></div></div>
-      <div class="where">${p.where.length ? p.where.map(w => `<div class="w"><div>${tag(w.path, w.unplaced)}${qbtn(w.stock_id, p.name, w.qty)}</div>${w.note ? `<div class="note" style="margin:0">${esc(w.note)}</div>` : ""}<div><button class="btn sm" data-place="${w.stock_id}" data-n="${esc(p.name)}" data-note="${esc(w.note)}">Move or edit note</button></div></div>`).join("") : '<div class="muted sm">No stock on hand.</div>'}</div></div>`).join("")
+      <div class="where">${p.where.length ? p.where.map(w => `<div class="w"><div>${tag(w.path, w.unplaced)}${qbtn(w.stock_id, p.name, w.qty)}</div>${w.note ? `<div class="note" style="margin:0">${esc(w.note)}</div>` : ""}<div class="rowacts"><button class="btn sm" data-place="${w.stock_id}" data-n="${esc(p.name)}" data-note="${esc(w.note)}">Move or edit note</button><button class="btn sm" data-printstock="${w.stock_id}" data-n="${esc(p.name)}">Print item label</button></div></div>`).join("") : '<div class="muted sm">No stock on hand.</div>'}</div></div>`).join("")
       : `<div class="list"><div class="empty-state">Nothing matches "${esc(q)}". Try fewer words, or part of the part number.<div style="margin-top:12px"><button class="btn sm" type="button" id="addFromFind">Add "${esc(q)}" by hand</button></div></div></div>`;
     const af = $("#addFromFind"); if (af) af.onclick = () => handSheet(q);
     box.querySelectorAll("[data-place]").forEach(b => b.onclick = () => placeSheet(+b.dataset.place, b.dataset.n, b.dataset.note));
+    box.querySelectorAll("[data-printstock]").forEach(b => b.onclick = () => printSheet("stockitem", [+b.dataset.printstock], b.dataset.n));
   } catch (e) { box.innerHTML = `<div class="card">${esc(e.message)}</div>`; }
 }
 $("#q").oninput = () => { clearTimeout(ft); ft = setTimeout(runFind, 250); };
 $("#homeQ").onkeydown = e => { if (e.key === "Enter" && e.target.value.trim()) { $("#q").value = e.target.value.trim(); location.hash = "#find"; } };
+$("#homeHand").onclick = () => handSheet();
 $("#pinBtn").onclick = async () => { const p = await askPin(); if (p) { setPin(p); toast("PIN saved"); } };
 
 /* ---------- item page ---------- */
@@ -345,12 +357,14 @@ async function loadPart(id) {
     box.innerHTML = `<button class="back" id="back"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>Back</button>
      <div class="hero">${d.image ? `<img src="${esc(d.image)}" alt="">` : ""}<div><h1>${esc(d.name)}</h1><p class="muted" style="margin-top:6px">${esc(d.description || "No description yet.")}</p></div></div>
      <div class="facts"><div><small>In stock</small><b>${esc(d.total)}</b></div><div><small>Last scanned</small><b>${esc(d.last_scanned || "never")}</b></div><div><small>Category</small><b>${esc(d.category || "none")}</b></div></div>
-     <div class="extlinks"><button class="btn sm" id="editPart">Edit name and description</button><button class="btn sm" id="printPart">Print part label</button><button class="btn sm" id="photoPart">${d.image ? "Change photo" : "Add photo"}</button><input id="photoFile" type="file" accept="image/*" capture="environment" hidden>${safeUrl(d.link) ? `<a class="btn sm" href="${esc(d.link)}" target="_blank" rel="noopener noreferrer">Datasheet</a>` : ""}<a class="btn sm" href="${esc(d.inventree_url)}" target="_blank" rel="noopener noreferrer">Open in InvenTree</a></div>
+     <div class="actions2"><button class="btn primary" id="printPart">Print part label</button><button class="btn" id="photoPart">${d.image ? "Change photo" : "Add photo"}</button></div>
+     <input id="photoFile" type="file" accept="image/*" capture="environment" hidden>
+     <div class="linkrow"><button class="btn quiet sm" id="editPart">Edit name and description</button>${safeUrl(d.link) ? `<a class="btn quiet sm" href="${esc(d.link)}" target="_blank" rel="noopener noreferrer">Datasheet</a>` : ""}<a class="btn quiet sm" href="${esc(d.inventree_url)}" target="_blank" rel="noopener noreferrer">Open in InvenTree</a></div>
      <h2>Where it is <small>${d.stock.length} ${d.stock.length === 1 ? "line" : "lines"}</small></h2>
      <div class="list">${d.stock.length ? d.stock.map(s => `<div class="line"><div class="top2">${tag(s.path, s.unplaced)}<span class="sm muted">quantity ${qbtn(s.stock_id, d.name, s.qty)}</span></div>
         ${s.note ? `<div class="note" style="margin:0">${esc(s.note)}</div>` : ""}
         ${s.details ? `<div class="sm muted">${esc(s.details)}</div>` : ""}<div class="sm muted">Added ${esc(s.date)}${s.batch ? ` &nbsp;<span class="mono">${esc(s.batch)}</span>` : ""}</div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm" data-place="${s.stock_id}" data-n="${esc(d.name)}" data-note="${esc(s.note)}">Move or edit note</button><button class="btn sm" data-printstock="${s.stock_id}">Print label</button></div></div>`).join("") : '<div class="empty-state">No stock on hand.</div>'}</div>
+        <div class="rowacts"><button class="btn sm" data-place="${s.stock_id}" data-n="${esc(d.name)}" data-note="${esc(s.note)}">Move or edit note</button><button class="btn sm" data-printstock="${s.stock_id}">Print item label</button></div></div>`).join("") : '<div class="empty-state">No stock on hand.</div>'}</div>
      ${d.manufacturers.length || dk ? `<h2>Part details</h2><div class="list"><table class="kv">${d.manufacturers.map(m => `<tr><td>Manufacturer</td><td>${esc(m.name)}</td></tr><tr><td>Manufacturer part no.</td><td class="mono">${esc(m.mpn)}</td></tr>`).join("")}${dk}</table></div>` : ""}
      ${d.params.length ? `<h2>Specifications <small>${d.params.length}</small></h2><div class="list"><table class="kv">${d.params.map(x => `<tr><td>${esc(x.name)}</td><td>${esc(x.value)}</td></tr>`).join("")}</table></div>` : ""}`;
     $("#back").onclick = goBack;

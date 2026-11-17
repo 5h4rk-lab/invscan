@@ -62,6 +62,21 @@ def add_room(inv, location_id: int, room: str) -> dict:
     root = loc
     while root["parent"]:
         root = inv.get(f"stock/location/{root['parent']}/")
+    number = room[5:].strip() if room.lower().startswith("room ") else room
+    if root["name"].strip().lower() in (room.lower(), number.lower()):
+        # the top level is already "127" for Room 127: it is the room, so rename it instead of nesting it in a copy
+        existing = [l for l in inv.list("stock/location/", search=room, limit=50)
+                    if l["name"].lower() == room.lower() and not l["parent"] and l["pk"] != root["pk"]]
+        if existing:  # a real "Room 127" already exists: move this tree's children into it, then drop the empty copy
+            for child in inv.list("stock/location/", parent=root["pk"], limit=500):
+                inv.patch(f"stock/location/{child['pk']}/", parent=existing[0]["pk"])
+            try:
+                inv._req("DELETE", f"stock/location/{root['pk']}/", json={"delete_stock_items": False, "delete_sub_locations": False})
+            except RuntimeError:
+                pass  # it holds stock itself; leave it rather than risk anything
+        else:
+            inv.patch(f"stock/location/{root['pk']}/", name=room)
+        return {"id": location_id, "path": inv.get(f"stock/location/{location_id}/")["pathstring"]}
     room_id = ensure_path(inv, room)
     inv.patch(f"stock/location/{root['pk']}/", parent=room_id)
     return {"id": location_id, "path": inv.get(f"stock/location/{location_id}/")["pathstring"]}

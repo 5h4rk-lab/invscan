@@ -199,3 +199,50 @@ def test_manual_needs_a_place():
     assert add_manual(Fake(), None, "X", "", 1, None, None).status == "error"
     assert add_manual(Fake(), None, "", "", 1, 7, None).status == "error"
     assert add_manual(Fake(), None, "X", "", 0, 7, None).status == "error"
+
+
+class FakeTree:
+    """Minimal stand-in for InvenTree's location API, enough for add_room."""
+    def __init__(self, rows):
+        self.rows = {r["pk"]: dict(r) for r in rows}
+        self.next = max(self.rows) + 1
+        self.deleted = []
+
+    def _path(self, pk):
+        r = self.rows[pk]
+        return r["name"] if not r["parent"] else self._path(r["parent"]) + "/" + r["name"]
+
+    def get(self, path, **_):
+        pk = int(path.strip("/").split("/")[-1])
+        r = dict(self.rows[pk]); r["pathstring"] = self._path(pk); return r
+
+    def list(self, path, **q):
+        rows = [dict(r, pathstring=self._path(r["pk"])) for r in self.rows.values()]
+        if "parent" in q:
+            rows = [r for r in rows if r["parent"] == q["parent"]]
+        if "search" in q:
+            rows = [r for r in rows if q["search"].lower() in r["name"].lower()]
+        return rows
+
+    def post(self, path, **b):
+        r = {"pk": self.next, "name": b["name"], "parent": b.get("parent")}; self.rows[self.next] = r; self.next += 1; return r
+
+    def patch(self, path, **b):
+        self.rows[int(path.strip("/").split("/")[-1])].update(b)
+
+    def _req(self, method, path, **kw):
+        assert method == "DELETE"; self.deleted.append(int(path.strip("/").split("/")[-1])); del self.rows[self.deleted[-1]]
+
+
+def test_add_room_nests_a_cabinet_under_a_new_room():
+    from invscan.locations import add_room
+    t = FakeTree([{"pk": 1, "name": "Cabinet A", "parent": None}, {"pk": 2, "name": "Drawer 3", "parent": 1}])
+    assert add_room(t, 2, "204")["path"] == "Room 204/Cabinet A/Drawer 3"
+
+
+def test_add_room_does_not_duplicate_a_place_already_named_after_the_room():
+    from invscan.locations import add_room
+    # '127' was the top level; adding Room 127 must turn it into the room, not nest 127 inside Room 127
+    t = FakeTree([{"pk": 1, "name": "127", "parent": None}, {"pk": 2, "name": "Cabinet #3", "parent": 1}, {"pk": 3, "name": "Drawer 1", "parent": 2}])
+    assert add_room(t, 3, "127")["path"] == "Room 127/Cabinet #3/Drawer 1"
+    assert len([r for r in t.rows.values() if r["parent"] is None]) == 1
