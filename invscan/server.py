@@ -5,17 +5,21 @@ import time
 from pathlib import Path
 
 import segno
-from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from .browse import browse as browse_parts
+from .browse import invalidate as invalidate_index
+from .categories import list_categories
 from .client import InvenTree
 from .digikey import DigiKey
 from .mouser import MOUSER_PN, Mouser, mpn_from_pn
 from .ingest import add_manual, ingest
 from .locations import LABEL_PREFIX, add_room, ensure_path, has_room, parse_label, place_path
 from .notes import get_note, set_note
+from .organise import organise
 from .parser import ScanError, parse_scan
 from .printing import MODELS, plan_print, printers, run_print, templates_by_model
 
@@ -97,9 +101,15 @@ class QtyIn(BaseModel):
     qty: float
 
 
+class OrganiseIn(BaseModel):
+    limit: int = 10
+    dry_run: bool = False
+
+
 class PartEditIn(BaseModel):
     name: str | None = None
     description: str | None = None
+    category: int | None = None
 
 
 class PrintIn(BaseModel):
@@ -258,6 +268,28 @@ async def part_image(pk: int, request: Request):
     return {"image": p.get("image"), "thumbnail": p.get("thumbnail")}
 
 
+@app.get("/api/categories", dependencies=[Depends(auth)])
+def categories():
+    return list_categories(inv())
+
+
+@app.get("/api/browse", dependencies=[Depends(auth)])
+def browse(category: int | None = None, q: str = "", sort: str = "", f: list[str] = Query(default=[])):
+    """Parts in a category (and below) with DigiKey-style filters. f is repeated as 'Spec name::value'."""
+    selected: dict[str, list[str]] = {}
+    for item in f:
+        if "::" in item:
+            n, v = item.split("::", 1)
+            selected.setdefault(n, []).append(v)
+    return browse_parts(inv(), category, q.strip(), sort, selected)
+
+
+@app.post("/api/organise", dependencies=[Depends(auth)])
+def organise_parts(body: OrganiseIn):
+    """File parts that are still in Unsorted using DigiKey's categories. A few per call; call again for the rest."""
+    return organise(inv(), dk(), min(max(body.limit, 1), 25), body.dry_run)
+
+
 @app.get("/api/find", dependencies=[Depends(auth)])
 def find(q: str):
     q = q.strip()
@@ -273,6 +305,7 @@ def find(q: str):
     for pid, p in parts.items():
         stock = inv().list("stock/", part=pid, in_stock=True, location_detail=True)
         out.append({"id": pid, "name": p["name"], "description": p["description"], "thumbnail": p.get("thumbnail"),
+                    "category": p.get("category_name"), "category_id": p.get("category"),
                     "total": sum(s["quantity"] for s in stock), "where": [_where(s) for s in stock]})
     return out
 
@@ -327,7 +360,7 @@ def part_detail(pk: int):
         lines.append({**w, "batch": s.get("batch", ""), "details": raw, "date": (s.get("creation_date") or "")[:10]})
     return {
         "id": pk, "name": p["name"], "description": p["description"], "image": p.get("image"), "link": p.get("link"),
-        "category": cat, "last_scanned": last, "total": sum(s["quantity"] for s in stock if s.get("in_stock", True)),
+        "category": cat, "category_id": p.get("category"), "last_scanned": last, "total": sum(s["quantity"] for s in stock if s.get("in_stock", True)),
         "manufacturers": [{"name": (m.get("manufacturer_detail") or {}).get("name", ""), "mpn": m["MPN"]}
                           for m in i.list("company/part/manufacturer/", part=pk, manufacturer_detail=True)],
         "suppliers": [{"sku": s["SKU"], "variant": s.get("description", ""), "link": s.get("link", "")}
@@ -339,7 +372,9 @@ def part_detail(pk: int):
 
 @app.post("/api/part/{pk}/edit", dependencies=[Depends(auth)])
 def part_edit(pk: int, body: PartEditIn):
-    upd = {k: v.strip() for k, v in body.dict().items() if v is not None}
+    upd = {k: v.strip() for k, v in body.dict().items() if isinstance(v, str)}
+    if body.category:
+        upd["category"] = body.category
     if "name" in upd and not upd["name"]:
         raise HTTPException(422, "name cannot be empty")
     if upd:

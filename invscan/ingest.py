@@ -2,6 +2,7 @@
 from dataclasses import dataclass
 from datetime import date
 
+from .categories import digikey_path, ensure_category_path
 from .enrich import add_supplier_part, enrich_part, ensure_manufacturer_part
 from .locations import ensure_path
 from .notes import set_note
@@ -104,7 +105,7 @@ def ingest(inv, scan: Scan, location_id: int | None, qty: int | None = None, dk=
             "part/",
             name=name, IPN=name,
             description=description or (f"Imported from {origin} scan" if (scan.sales_order or mouser_label) else "Added by hand"),
-            category=unsorted_category(inv), component=True, purchaseable=True,
+            category=ensure_category_path(inv, digikey_path(product)) or unsorted_category(inv), component=True, purchaseable=True,
         )["pk"]
 
     mp_id = None

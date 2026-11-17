@@ -31,7 +31,7 @@ class Fake:
 
     def post(self, path, **b):
         store = self._rows(path)
-        row = {**b, "pk": len(store) + 1, "parent": None}
+        row = {"parent": None, **b, "pk": len(store) + 1}
         store.append(row)
         return row
 

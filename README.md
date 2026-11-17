@@ -29,6 +29,11 @@ small bags into drawers.
 - **Add parts that have no DigiKey label.** "Add a part by hand": type a name or a part number (a DigiKey number such as
   `296-19733-5-ND` fills in the details), a quantity, and optionally take a photo. The photo becomes the part's picture
   in search results. Then print a label with a QR that opens the item when scanned.
+- **Categories like DigiKey's.** New parts are filed in DigiKey's own category tree (for example
+  `Capacitors / Aluminum - Polymer Capacitors`). **Find > Browse by category** drills down with counts, and each
+  category has search, sorting and DigiKey-style **filters** built from the part's specs (Capacitance, Voltage,
+  Package and so on). **Sort them** files existing Unsorted parts the same way, and Edit lets you change a part's
+  category by hand.
 - **Find it later.** Search by part number, description, specs or your own notes; results show the bin path.
 - **Item pages.** Photo, specs, every stock line, edit name/description, move to a bin, link to the InvenTree page.
 - **Everything is editable.** Tap any quantity to set the exact number (recorded as a stock count in InvenTree).
@@ -133,6 +138,15 @@ The room is shown in its own highlighted block: any level whose name starts with
 Drawer and Bin or box; the path becomes the location tree, so the label shows each level. The name steps down in size (and wraps for very long names) so it is never cut off, and the corner mark
 (hen, or a per-owner picture) sits top-right. Adjust the HTML for other media sizes (the template reads
 InvenTree's `width` and `height`).
+
+## Categories and filters
+
+Categories come from the DigiKey product record, which carries the full path, and are created in InvenTree as needed.
+A part you filed yourself is never moved. The filters are computed from the parts' specs, stored as InvenTree
+parameters: a filter appears once several parts in a category share a spec, values inside one filter are OR and
+different filters are AND, and each filter's counts ignore its own selection so you can switch values freely.
+InvenTree cannot return parts together with their parameters, so the app reads all parameters and keeps them for 30
+seconds. That is fast for thousands of parts; for a very large inventory a cache closer to InvenTree would help.
 
 ## Mouser labels
 

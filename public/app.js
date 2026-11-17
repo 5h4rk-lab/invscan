@@ -1,7 +1,7 @@
 ZXingWASM.setZXingModuleOverrides({ locateFile: p => "/static/vendor/" + p });
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const state = { pin: localStorage.pin || "", bin: JSON.parse(localStorage.bin || "null"), view: "", cam: null, paused: false, last: "", lastT: 0, lastSeen: 0, busy: false, firstHome: true };
+const state = { pin: localStorage.pin || "", bin: JSON.parse(localStorage.bin || "null"), view: "", cam: null, paused: false, last: "", lastT: 0, lastSeen: 0, busy: false, firstHome: true, cats: [], cat: { id: null, q: "", sort: "relevance", f: {} } };
 
 /* ---------- api ---------- */
 function setPin(p) {
@@ -55,7 +55,7 @@ function qtySheet(id, name, val, after) {
   $("#sheetForm").querySelectorAll("[data-d]").forEach(b => b.onclick = () => { i.value = Math.max(0, (+i.value || 0) + +b.dataset.d); });
   i.select();
 }
-function refresh() { state.view === "find" ? runFind() : state.view === "home" ? loadHome() : state.view === "part" ? loadPart(state.partId) : 0; }
+function refresh() { state.view === "find" ? runFind() : state.view === "home" ? loadHome() : state.view === "part" ? loadPart(state.partId) : state.view === "cat" ? loadCat(state.catId) : 0; }
 document.addEventListener("click", e => {
   const b = e.target.closest("[data-qty]"); if (!b) return;
   qtySheet(+b.dataset.id, b.dataset.name, b.dataset.val, b.dataset.after ? r => { b.textContent = r.qty; b.dataset.val = r.qty; } : null);
@@ -324,7 +324,7 @@ async function loadHome() {
   $("#homeBody").innerHTML = `<h2>Loading</h2><div class="list">${'<div class="row"><div class="thumb empty sk"></div><div class="body"><div class="sk" style="width:60%"></div><div class="sk" style="width:85%;margin-top:8px"></div></div></div>'.repeat(3)}</div>`;
   try {
     const h = await api("/api/home");
-    $("#stats").innerHTML = `<div><b>${h.counts.parts}</b><span>parts</span></div><div><b>${h.counts.stock}</b><span>stock lines</span></div><div><b>${h.counts.bins}</b><span>bins</span></div>` + (h.unsorted ? `<div><b>${h.unsorted}</b><span>to categorise</span></div>` : "");
+    $("#stats").innerHTML = `<div><b>${h.counts.parts}</b><span>parts</span></div><div><b>${h.counts.stock}</b><span>stock lines</span></div><div><b>${h.counts.bins}</b><span>bins</span></div>` + (h.unsorted ? `<a href="#find" style="color:inherit;text-decoration:none"><b>${h.unsorted}</b><span>to sort</span></a>` : "");
     let out = "";
     out += `<h2>Needs a home <small>${h.unplaced.length ? h.unplaced.length + " waiting" : ""}</small></h2>`;
     out += h.unplaced.length
@@ -353,11 +353,11 @@ function placeSheet(id, name, note) {
 let ft;
 async function runFind() {
   const q = $("#q").value.trim(), box = $("#res");
-  if (!q) { box.innerHTML = `<div class="list"><div class="empty-state">Type a part number, a value like "16 bit", or words from a note you wrote.</div></div>`; return; }
+  if (!q) { try { await loadCats(); renderTree(box); } catch (e) { box.innerHTML = `<div class="card">${esc(e.message)}</div>`; } return; }
   box.innerHTML = `<div class="card"><div class="sk" style="width:50%"></div><div class="sk" style="width:80%;margin-top:10px"></div></div>`;
   try {
     const r = await api("/api/find?q=" + encodeURIComponent(q));
-    box.innerHTML = r.length ? r.map(p => `<div class="card"><div class="head">${plink(p.id, img(p.thumbnail, p.name), "thumb-link")}<div class="body" style="flex:1;min-width:0"><div class="name">${plink(p.id, esc(p.name), "nm")}</div><div class="desc muted sm">${esc(p.description)}</div></div>
+    box.innerHTML = r.length ? r.map(p => `<div class="card"><div class="head">${plink(p.id, img(p.thumbnail, p.name), "thumb-link")}<div class="body" style="flex:1;min-width:0"><div class="name">${plink(p.id, esc(p.name), "nm")}</div><div class="desc muted sm">${esc(p.description)}</div>${p.category ? `<div class="catline"><a href="#cat/${p.category_id}">${esc(p.category)}</a></div>` : ""}</div>
       <div class="qty">${esc(p.total)}<small>in stock</small></div></div>
       <div class="where">${p.where.length ? p.where.map(w => `<div class="w"><div>${tag(w.path, w.unplaced)}${qbtn(w.stock_id, p.name, w.qty)}</div>${w.note ? `<div class="note" style="margin:0">${esc(w.note)}</div>` : ""}<div class="rowacts"><button class="btn sm" data-place="${w.stock_id}" data-n="${esc(p.name)}" data-note="${esc(w.note)}">Move or edit note</button><button class="btn sm" data-printstock="${w.stock_id}" data-n="${esc(p.name)}">Print item label</button></div></div>`).join("") : '<div class="muted sm">No stock on hand.</div>'}</div></div>`).join("")
       : `<div class="list"><div class="empty-state">Nothing matches "${esc(q)}". Try fewer words, or part of the part number.<div style="margin-top:12px"><button class="btn sm" type="button" id="addFromFind">Add "${esc(q)}" by hand</button></div></div></div>`;
@@ -371,6 +371,85 @@ $("#homeQ").onkeydown = e => { if (e.key === "Enter" && e.target.value.trim()) {
 $("#homeHand").onclick = () => handSheet();
 $("#pinBtn").onclick = async () => { const p = await askPin(); if (p) { setPin(p); toast("PIN saved"); } };
 
+/* ---------- categories and browse ---------- */
+async function loadCats() { state.cats = await api("/api/categories"); return state.cats; }
+const catKids = id => state.cats.filter(c => (c.parent || null) === id && c.count > 0).sort((a, b) => a.name.localeCompare(b.name));
+function crumbs(c) {
+  const parts = c.path.split("/"), out = ['<a href="#find">All categories</a>']; let acc = [];
+  parts.forEach((n, i) => {
+    acc.push(n); const hit = state.cats.find(x => x.path === acc.join("/"));
+    out.push(i === parts.length - 1 || !hit ? `<b>${esc(n)}</b>` : `<a href="#cat/${hit.id}">${esc(n)}</a>`);
+  });
+  return out.join('<span class="sep">/</span>');
+}
+function organiseBanner() {
+  const u = state.cats.find(c => c.name === "Unsorted" && !c.parent);
+  if (!u || !u.count) return "";
+  return `<div class="banner"><p><b>${u.count} ${u.count === 1 ? "part is" : "parts are"} not sorted yet.</b><br><span class="muted">File them using DigiKey's categories, so you can browse and filter.</span></p><button class="btn primary sm" type="button" data-organise>Sort them</button></div>`;
+}
+function wireOrganise(root) { root.querySelectorAll("[data-organise]").forEach(b => b.onclick = organiseAll); }
+async function organiseAll() {
+  openSheet(`<h3>Sorting parts</h3><p class="muted sm" id="orgMsg">Looking each one up at DigiKey...</p>`, null, null, "Close");
+  let moved = 0, skipped = 0;
+  try {
+    for (let i = 0; i < 12; i++) {
+      const r = await api("/api/organise", { limit: 8 }); moved += r.moved; skipped += r.skipped;
+      const m = $("#orgMsg"); if (m) m.textContent = `Filed ${moved}, no match for ${skipped}${r.remaining ? ", " + r.remaining + " to go..." : ""}`;
+      if (!r.remaining) break;
+    }
+    const m = $("#orgMsg"); if (m) m.textContent = `Done. Filed ${moved} ${moved === 1 ? "part" : "parts"}.` + (skipped ? ` ${skipped} had no supplier data: open one and use Edit to pick a category.` : "");
+  } catch (e) { const m = $("#orgMsg"); if (m) m.textContent = e.message; }
+  await loadCats(); if (state.view === "find") runFind(); else if (state.view === "cat") loadCat(state.catId);
+}
+function renderTree(box) {
+  const roots = catKids(null).sort((a, b) => (a.name === "Unsorted") - (b.name === "Unsorted") || a.name.localeCompare(b.name));
+  box.innerHTML = organiseBanner() + `<h2>Browse by category <small>${roots.length}</small></h2>` + (roots.length
+    ? `<div class="list">${roots.map(c => `<a class="row catrow" href="#cat/${c.id}"><div class="body"><div class="name">${esc(c.name)}</div></div><div class="qty">${esc(c.count)}</div></a>`).join("")}</div>`
+    : `<div class="list"><div class="empty-state">Nothing to browse yet. Scan a bag and its category appears here.</div></div>`);
+  wireOrganise(box);
+}
+const SORTS = [["relevance", "Best match"], ["newest", "Newest"], ["name", "Name"], ["stock", "Most stock"]];
+async function loadCat(id) {
+  if (!state.cats.length) await loadCats();
+  const c = state.cats.find(x => x.id === id), top = $("#catTop");
+  if (!c) { top.innerHTML = '<div class="card">That category no longer exists.</div>'; $("#catRes").innerHTML = ""; return; }
+  const kids = catKids(id);
+  top.innerHTML = `<div class="crumbs" style="margin-top:6px">${crumbs(c)}</div><h1 style="font-size:28px;margin:0">${esc(c.name)}</h1>
+    ${kids.length ? `<div class="chips">${kids.map(k => `<a class="chip" href="#cat/${k.id}">${esc(k.name)} <small>${k.count}</small></a>`).join("")}</div>` : ""}
+    <div class="controls"><input id="catQ" class="field" type="search" placeholder="Search in ${esc(c.name)}" value="${esc(state.cat.q)}" autocomplete="off">
+    <select id="catSort" class="field" aria-label="Sort by">${SORTS.map(([v, l]) => `<option value="${v}" ${state.cat.sort === v ? "selected" : ""}>${l}</option>`).join("")}</select></div>`;
+  let dt; $("#catQ").oninput = e => { clearTimeout(dt); dt = setTimeout(() => { state.cat.q = e.target.value.trim(); loadCatResults(); }, 250); };
+  $("#catSort").onchange = e => { state.cat.sort = e.target.value; loadCatResults(); };
+  loadCatResults();
+}
+async function loadCatResults() {
+  const box = $("#catRes"), c = state.cat;
+  const qs = new URLSearchParams({ category: c.id, q: c.q, sort: c.sort }); Object.entries(c.f).forEach(([n, vs]) => vs.forEach(v => qs.append("f", n + "::" + v)));
+  if (!box.firstChild) box.innerHTML = `<div class="list">${'<div class="row"><div class="thumb empty sk"></div><div class="body"><div class="sk" style="width:55%"></div><div class="sk" style="width:80%;margin-top:8px"></div></div></div>'.repeat(3)}</div>`;
+  try {
+    const r = await api("/api/browse?" + qs);
+    const pills = Object.entries(c.f).flatMap(([n, vs]) => vs.map(v => `<button class="pill" data-rm="${esc(n)}::${esc(v)}">${esc(n)}: ${esc(v)} <b>&times;</b></button>`)).join("");
+    const cat = state.cats.find(x => x.id === c.id);
+    box.innerHTML = (cat && cat.name === "Unsorted" ? organiseBanner() : "")
+      + (r.facets.length ? `<div class="facets">${r.facets.map((f, i) => `<button class="chip ${f.values.some(v => v.selected) ? "on" : ""}" data-f="${i}">${esc(f.name)} <small>${f.values.length}</small></button>`).join("")}</div>` : "")
+      + (pills ? `<div class="pills">${pills}</div>` : "")
+      + `<h2 style="margin-top:6px">${r.total} ${r.total === 1 ? "part" : "parts"}</h2>`
+      + (r.parts.length ? `<div class="list">${r.parts.map(p => `<a class="row catrow" href="#part/${p.id}">${img(p.thumbnail, p.name)}<div class="body"><div class="name">${esc(p.name)}</div><div class="desc">${esc(p.description || "")}</div>
+          ${p.specs.length ? `<div class="specs">${p.specs.map(s => `<span class="sv" title="${esc(s.name)}">${esc(s.value)}</span>`).join("")}</div>` : ""}</div>
+          <div class="qty">${esc(p.total)}<small>in stock</small></div></a>`).join("")}</div>`
+        : `<div class="list"><div class="empty-state">No parts match.${Object.keys(c.f).length ? " Remove a filter to see more." : ""}</div></div>`);
+    box.querySelectorAll("[data-f]").forEach(b => b.onclick = () => facetSheet(r.facets[+b.dataset.f]));
+    box.querySelectorAll("[data-rm]").forEach(b => b.onclick = () => { const [n, v] = b.dataset.rm.split("::"); state.cat.f[n] = (state.cat.f[n] || []).filter(x => x !== v); if (!state.cat.f[n].length) delete state.cat.f[n]; loadCatResults(); });
+    wireOrganise(box);
+  } catch (e) { box.innerHTML = `<div class="card">${esc(e.message)}</div>`; }
+}
+function facetSheet(f) {
+  openSheet(`<h3>${esc(f.name)}</h3><div class="checks">${f.values.map(v => `<label class="chk"><input type="checkbox" name="v" value="${esc(v.value)}" ${v.selected ? "checked" : ""}><span>${esc(v.value)}</span><small>${v.count}</small></label>`).join("")}</div>
+    <button class="btn primary" type="submit">Show results</button><button class="btn quiet" type="button" id="clrF">Clear this filter</button>`,
+    fd => { const vs = fd.getAll("v"); if (vs.length) state.cat.f[f.name] = vs; else delete state.cat.f[f.name]; loadCatResults(); });
+  $("#clrF").onclick = () => { delete state.cat.f[f.name]; $("#sheet").close(); loadCatResults(); };
+}
+
 /* ---------- item page ---------- */
 async function loadPart(id) {
   const box = $("#partBody");
@@ -381,7 +460,7 @@ async function loadPart(id) {
     const dk = d.suppliers.map(s => `<tr><td>DigiKey ${esc(s.variant || "")}</td><td class="mono">${safeUrl(s.link) ? `<a href="${esc(s.link)}" target="_blank" rel="noopener noreferrer">${esc(s.sku)}</a>` : esc(s.sku)}</td></tr>`).join("");
     box.innerHTML = `<button class="back" id="back"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>Back</button>
      <div class="hero">${d.image ? `<img src="${esc(d.image)}" alt="">` : ""}<div><h1>${esc(d.name)}</h1><p class="muted" style="margin-top:6px">${esc(d.description || "No description yet.")}</p></div></div>
-     <div class="facts"><div><small>In stock</small><b>${esc(d.total)}</b></div><div><small>Last scanned</small><b>${esc(d.last_scanned || "never")}</b></div><div><small>Category</small><b>${esc(d.category || "none")}</b></div></div>
+     <div class="facts"><div><small>In stock</small><b>${esc(d.total)}</b></div><div><small>Last scanned</small><b>${esc(d.last_scanned || "never")}</b></div><div><small>Category</small><b>${d.category_id ? `<a href="#cat/${d.category_id}" style="color:inherit">${esc(d.category.split("/").pop())}</a>` : "none"}</b></div></div>
      <div class="actions2"><button class="btn primary" id="printPart">Print part label</button><button class="btn" id="photoPart">${d.image ? "Change photo" : "Add photo"}</button></div>
      <input id="photoFile" type="file" accept="image/*" capture="environment" hidden>
      <div class="linkrow"><button class="btn quiet sm" id="editPart">Edit name and description</button>${safeUrl(d.link) ? `<a class="btn quiet sm" href="${esc(d.link)}" target="_blank" rel="noopener noreferrer">Datasheet</a>` : ""}<a class="btn quiet sm" href="${esc(d.inventree_url)}" target="_blank" rel="noopener noreferrer">Open in InvenTree</a></div>
@@ -393,11 +472,15 @@ async function loadPart(id) {
      ${d.manufacturers.length || dk ? `<h2>Part details</h2><div class="list"><table class="kv">${d.manufacturers.map(m => `<tr><td>Manufacturer</td><td>${esc(m.name)}</td></tr><tr><td>Manufacturer part no.</td><td class="mono">${esc(m.mpn)}</td></tr>`).join("")}${dk}</table></div>` : ""}
      ${d.params.length ? `<h2>Specifications <small>${d.params.length}</small></h2><div class="list"><table class="kv">${d.params.map(x => `<tr><td>${esc(x.name)}</td><td>${esc(x.value)}</td></tr>`).join("")}</table></div>` : ""}`;
     $("#back").onclick = goBack;
-    $("#editPart").onclick = () => openSheet(`<h3>Edit item</h3>
+    $("#editPart").onclick = async () => {
+      try { await loadCats(); } catch { /* the picker is optional */ }
+      openSheet(`<h3>Edit item</h3>
       <label>Name<input class="field mono" name="name" value="${esc(d.name)}" required></label>
       <label>Description<textarea class="field" name="description">${esc(d.description || "")}</textarea></label>
+      <label>Category<select class="field" name="category">${state.cats.slice().sort((a, b) => a.path.localeCompare(b.path)).map(c => `<option value="${c.id}" ${c.id === d.category_id ? "selected" : ""}>${esc(c.path.split("/").join(" / "))}</option>`).join("")}</select></label>
       <button class="btn primary" type="submit">Save</button>`,
-      async f => { try { await api(`/api/part/${id}/edit`, { name: f.get("name"), description: f.get("description") }); toast("Saved"); loadPart(id); } catch (e) { toast(e.message); } });
+        async f => { try { await api(`/api/part/${id}/edit`, { name: f.get("name"), description: f.get("description"), category: +f.get("category") || null }); toast("Saved"); loadPart(id); } catch (e) { toast(e.message); } });
+    };
     box.querySelectorAll("[data-place]").forEach(b => b.onclick = () => placeSheet(+b.dataset.place, b.dataset.n, b.dataset.note));
     $("#printPart").onclick = () => printSheet("part", [id], d.name);
     $("#photoPart").onclick = () => $("#photoFile").click();
@@ -414,17 +497,20 @@ function goBack() { history.length > 1 ? history.back() : (location.hash = "#fin
 function route() {
   const h = location.hash.slice(1); let v = "home", arg = null;
   if (h.startsWith("part/") && +h.slice(5)) { v = "part"; arg = +h.slice(5); }
+  else if (h.startsWith("cat/") && +h.slice(4)) { v = "cat"; arg = +h.slice(4); }
   else if (["home", "scan", "find"].includes(h)) v = h;
   const key = v + ":" + (arg ?? ""); if (key === state.key) return;
-  state.key = key; state.view = v; state.partId = arg;
-  for (const n of ["home", "scan", "find", "part"]) {
+  state.key = key; state.view = v; state.partId = arg; state.catId = arg;
+  if (v === "cat" && state.cat.id !== arg) state.cat = { id: arg, q: "", sort: "relevance", f: {} };
+  for (const n of ["home", "scan", "find", "part", "cat"]) {
     const s = $("#v-" + n); s.hidden = n !== v; if (n === v) { s.classList.remove("in"); void s.offsetWidth; s.classList.add("in"); }
   }
-  document.querySelectorAll(".tabs a").forEach(a => a.dataset.v === v ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"));
+  document.querySelectorAll(".tabs a").forEach(a => a.dataset.v === (v === "cat" ? "find" : v) ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"));
   v === "scan" ? startCam() : stopCam();
   if (v === "home") loadHome();
   if (v === "find") { runFind(); $("#q").focus({ preventScroll: true }); }
   if (v === "part") loadPart(arg);
+  if (v === "cat") loadCat(arg);
   window.scrollTo(0, 0);
 }
 addEventListener("hashchange", route);

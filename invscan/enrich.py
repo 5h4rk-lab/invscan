@@ -1,6 +1,7 @@
 """Fill an InvenTree part with supplier data (DigiKey or Mouser): description, manufacturer, SKUs, image, links."""
 import requests
 
+from .categories import digikey_path, ensure_category_path
 from .params import set_digikey_params
 
 
@@ -55,6 +56,11 @@ def enrich_part(inv, part_id: int, product: dict, supplier: str = "Digi-Key", va
     kw = " ".join(dict.fromkeys([mpn, product["Manufacturer"]["Name"], cat, *(v for _, v in _params(product, 8))]))
 
     upd = {}
+    path = digikey_path(product)
+    if path and part.get("category_name") in (None, "", "Unsorted"):  # never move a part you filed yourself
+        cat = ensure_category_path(inv, path)
+        if cat:
+            upd["category"] = cat
     if not part.get("description") or part["description"].startswith("Imported from"):
         upd["description"] = desc[:250]
     if not part.get("keywords"):
