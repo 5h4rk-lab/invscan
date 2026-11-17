@@ -1,6 +1,6 @@
 {% extends "label/label_base.html" %}
 {% load l10n i18n barcode %}
-{# invscan bin label: QR on the left, the full place on the right (room > cabinet > drawer) with the bin name large. #}
+{# invscan bin label: QR on the left; on the right a highlighted room block (any level named "Room ..."), then cabinet and drawer, with the bin name large. #}
 
 {% block style %}
 .qr {
@@ -26,6 +26,19 @@
     justify-content: space-between;
     font-family: Arial, Helvetica, sans-serif;
     color: #000;
+}
+
+.room {
+    background: #000;
+    color: #fff;
+    font-size: 11pt;
+    font-weight: 800;
+    line-height: 1.25;
+    padding: 0.3mm 1.6mm;
+    margin-bottom: 0.8mm;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .level {
@@ -55,9 +68,12 @@
 
 <div class='info'>
     <div>
-        {% for place in location.get_ancestors %}
+        {% for place in location.get_ancestors %}{% if place.name|slice:":4"|lower == "room" %}
+        <div class='room'>{{ place.name }}</div>
+        {% endif %}{% endfor %}
+        {% for place in location.get_ancestors %}{% if place.name|slice:":4"|lower != "room" %}
         <div class='level'>{{ place.name }}</div>
-        {% endfor %}
+        {% endif %}{% endfor %}
     </div>
     <div class='bin'>{{ location.name }}</div>
 </div>

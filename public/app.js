@@ -92,35 +92,50 @@ async function printSheet(model, ids, title) {
 /* ---------- bin ---------- */
 function renderBin() {
   const b = $("#binbar");
-  if (state.bin) { b.className = "binbar on"; b.innerHTML = `<div class="t"><small>Putting bags in</small>${tag(state.bin.path)}</div><div style="display:flex;gap:6px"><button class="btn sm" data-print>Print label</button><button class="btn sm" data-bin>Change</button></div>`; }
+  if (state.bin) { b.className = "binbar on"; b.innerHTML = `<div class="t"><small>Putting bags in</small>${tag(state.bin.path)}</div><div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">${hasRoom(state.bin.path) ? "" : '<button class="btn sm" data-room>Add room</button>'}<button class="btn sm" data-print>Print label</button><button class="btn sm" data-bin>Change</button></div>`; }
   else { b.className = "binbar note"; b.innerHTML = `<div class="t"><b>No bin set</b><small>Scan a bin label, or write a note about where each bag goes.</small></div><button class="btn sm" data-bin>Set bin</button>`; }
   b.querySelector("[data-bin]").onclick = binSheet;
+  const rb = b.querySelector("[data-room]"); if (rb) rb.onclick = roomSheet;
   const pb = b.querySelector("[data-print]"); if (pb) pb.onclick = () => printSheet("stocklocation", [state.bin.id], state.bin.path);
 }
 function setBin(b) { state.bin = b; localStorage.bin = JSON.stringify(b); renderBin(); }
-const BIN_FIELDS = [["room", "Room", "Room 204"], ["cabinet", "Cabinet or shelf", "Cabinet A"], ["drawer", "Drawer", "Drawer 3"], ["bin", "Bin or box", "Bin 2"]];
-function binPath(f) {
-  const full = (f.get("path") || "").trim(); if (full) return full;
-  return BIN_FIELDS.map(([k]) => (f.get(k) || "").trim()).filter(Boolean).join(" / ");
+const BIN_FIELDS = [["room", "Room number", "204"], ["cabinet", "Cabinet or shelf", "Cabinet A"], ["drawer", "Drawer", "Drawer 3"], ["bin", "Bin or box", "Bin 2"]];
+function binBody(f) {
+  const path = (f.get("path") || "").trim();
+  if (path) return { path };
+  const b = {}; BIN_FIELDS.forEach(([k]) => { b[k] = (f.get(k) || "").trim(); });
+  return Object.values(b).some(Boolean) ? b : null;
 }
+const hasRoom = p => (p || "").split("/").some(s => s.trim().toLowerCase().startsWith("room"));
 function binSheet() {
   const last = JSON.parse(localStorage.binParts || "{}");
   openSheet(`<h3>Where are bags going?</h3>
    <p class="muted sm">Point the camera at a bin label, or fill in the place. Anything new is created, and you can print its label.</p>
-   <div class="grid2">${BIN_FIELDS.map(([k, l, ph]) => `<label>${l}<input class="field" name="${k}" placeholder="${ph}" value="${esc(k === "room" || k === "cabinet" ? last[k] || "" : "")}" autocomplete="off"></label>`).join("")}</div>
+   <div class="roomsec"><label>Room number<input class="field" name="room" inputmode="text" placeholder="204" value="${esc(last.room || "")}" autocomplete="off"></label>
+    <span class="sm muted">Typing 204 saves it as Room 204 and prints it in a highlighted block on the label.</span></div>
+   <div class="grid2">${BIN_FIELDS.slice(1).map(([k, l, ph]) => `<label>${l}<input class="field" name="${k}" placeholder="${ph}" value="${esc(k === "cabinet" ? last.cabinet || "" : "")}" autocomplete="off"></label>`).join("")}</div>
    <details><summary class="sm muted" style="cursor:pointer">Type a full path instead</summary><input class="field mono" name="path" placeholder="Room 204 / Cabinet A / Drawer 3 / Bin 2" style="margin-top:8px"></details>
    <button class="btn primary" type="submit">Use this bin</button>
    <button class="btn" type="button" id="mkprint">Create bin and print its label</button>
    <button class="btn" type="button" id="nobin">No bin label: I'll write a note instead</button>`,
-    async f => { const p = binPath(f); if (p) { rememberBin(f); try { setBin(await api("/api/bin", { path: p })); } catch (e) { toast(e.message); } } });
+    async f => { const body = binBody(f); if (body) { rememberBin(f); try { setBin(await api("/api/bin", body)); } catch (e) { toast(e.message); } } });
   $("#nobin").onclick = () => { setBin(null); $("#sheet").close(); };
   $("#mkprint").onclick = async () => {
-    const f = new FormData($("#sheetForm")), p = binPath(f); if (!p) { toast("Fill in at least the bin or box"); return; }
+    const f = new FormData($("#sheetForm")), body = binBody(f); if (!body) { toast("Fill in at least the bin or box"); return; }
     rememberBin(f);
-    try { const b = await api("/api/bin", { path: p }); setBin(b); $("#sheet").close(); setTimeout(() => printSheet("stocklocation", [b.id], b.path), 80); } catch (e) { toast(e.message); }
+    try { const b = await api("/api/bin", body); setBin(b); $("#sheet").close(); setTimeout(() => printSheet("stocklocation", [b.id], b.path), 80); } catch (e) { toast(e.message); }
   };
 }
 function rememberBin(f) { localStorage.binParts = JSON.stringify({ room: (f.get("room") || "").trim(), cabinet: (f.get("cabinet") || "").trim() }); }
+function roomSheet() {
+  const last = JSON.parse(localStorage.binParts || "{}");
+  openSheet(`<h3>Add a room</h3>
+   <p class="muted sm">${tag(state.bin.path)}</p>
+   <p class="sm">The top level of this place and everything inside it moves into the room. Other bins in the same cabinet get the room too.</p>
+   <label>Room number<input class="field" name="room" placeholder="204" value="${esc(last.room || "")}" required autofocus autocomplete="off"></label>
+   <button class="btn primary" type="submit">Put in this room</button>`,
+    async f => { try { const r = await api(`/api/bin/${state.bin.id}/room`, { room: f.get("room") }); setBin(r); toast("Now in " + r.path); } catch (e) { toast(e.message); } });
+}
 
 /* ---------- scanning ---------- */
 function card(cls, html, thumb) {

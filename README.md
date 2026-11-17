@@ -18,7 +18,7 @@ small bags into drawers.
   manufacturer part, DigiKey supplier parts, and a stock item with lot, date code and order in its notes.
 - **DigiKey enrichment** (optional): description, photo, datasheet link, manufacturer, every packaging variant as a
   supplier part, and the specs as searchable InvenTree parameters. A "Last Scanned" date is kept on each part.
-- **Bins.** Type `Cabinet A / Drawer 3 / Bin 2` and the whole location tree is created. Print QR labels at
+- **Bins.** Enter Room number, Cabinet, Drawer and Bin (or type `Room 204 / Cabinet A / Drawer 3 / Bin 2`) and the whole location tree is created. "Add room" moves an existing cabinet into a room. Print QR labels at
   `/labels?ids=<location id>`; scan a label to set the current bin, then scan bags into it.
 - **No bin label? Write a note.** The bag is parked in an "Unplaced" location with your note ("blue box under the
   desk"). Search finds notes, and the home page lists everything that still needs a home.
@@ -118,8 +118,8 @@ set -a; . ./.env; set +a
 python scripts/install_labels.py
 ```
 
-It is picked automatically as the default bin label. When creating a bin, fill in Room, Cabinet or shelf, Drawer
-and Bin or box; the path becomes the location tree, so the label shows each level. Adjust the HTML for other
+The room is shown in its own highlighted block: any level whose name starts with "Room" (for example `Room 204`). It is picked automatically as the default bin label. When creating a bin, fill in Room number (typing `204` saves `Room 204`), Cabinet or shelf,
+Drawer and Bin or box; the path becomes the location tree, so the label shows each level. Adjust the HTML for other
 media sizes (the template reads InvenTree's `width` and `height`).
 
 ## What is on a DigiKey label

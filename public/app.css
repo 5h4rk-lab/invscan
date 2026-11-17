@@ -174,3 +174,5 @@ table.kv td:first-child{color:var(--muted);width:42%} table.kv tr:last-child td{
 .extlinks{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
 
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px} dialog details{display:block}
+
+.roomsec{display:grid;gap:6px;padding:12px;border:1.5px solid var(--copper);border-radius:var(--r-m);background:var(--raise)}

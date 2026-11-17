@@ -151,3 +151,16 @@ def test_print_plan_prefers_invscan_design():
     tpls = {"stocklocation": [{"id": 4, "name": "InvenTree Stock Location Label (QR + Text)"},
                               {"id": 20, "name": "invscan Bin Label (62x30)"}]}
     assert plan_print("stocklocation", tpls, [], None, None)["template"] == 20
+
+
+def test_place_path_and_room_number():
+    from invscan.locations import normalize_room, place_path
+    assert normalize_room("204") == "Room 204"
+    assert normalize_room(" 12B ") == "Room 12B"
+    assert normalize_room("Room 204") == "Room 204"
+    assert normalize_room("room 7") == "room 7"
+    assert normalize_room("Lab") == "Lab"
+    assert normalize_room("") == ""
+    assert place_path("204", "Cabinet A", "Drawer 3", "Bin 2") == "Room 204 / Cabinet A / Drawer 3 / Bin 2"
+    assert place_path("", "Cabinet A", "", "Bin 2") == "Cabinet A / Bin 2"
+    assert place_path("", "", "", "") == ""

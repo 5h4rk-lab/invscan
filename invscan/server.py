@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from .client import InvenTree
 from .digikey import DigiKey
 from .ingest import ingest
-from .locations import LABEL_PREFIX, ensure_path, parse_label
+from .locations import LABEL_PREFIX, add_room, ensure_path, has_room, parse_label, place_path
 from .notes import get_note, set_note
 from .parser import ScanError, parse_scan
 from .printing import MODELS, plan_print, printers, run_print, templates_by_model
@@ -74,7 +74,15 @@ class ScanIn(BaseModel):
 
 
 class PathIn(BaseModel):
-    path: str
+    path: str | None = None
+    room: str | None = None
+    cabinet: str | None = None
+    drawer: str | None = None
+    bin: str | None = None
+
+
+class RoomIn(BaseModel):
+    room: str
 
 
 class QtyIn(BaseModel):
@@ -168,8 +176,19 @@ def location(pk: int):
 
 @app.post("/api/bin", dependencies=[Depends(auth)])
 def make_bin(body: PathIn):
-    pk = ensure_path(inv(), body.path)
+    path = (body.path or "").strip() or place_path(body.room or "", body.cabinet or "", body.drawer or "", body.bin or "")
+    if not path:
+        raise HTTPException(422, "fill in at least the bin or box")
+    pk = ensure_path(inv(), path)
     return {"id": pk, "path": inv().get(f"stock/location/{pk}/")["pathstring"]}
+
+
+@app.post("/api/bin/{pk}/room", dependencies=[Depends(auth)])
+def bin_room(pk: int, body: RoomIn):
+    try:
+        return add_room(inv(), pk, body.room)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
 
 
 @app.post("/api/scan", dependencies=[Depends(auth)])
