@@ -31,7 +31,8 @@ def _is_date(tok: str) -> bool:
 
 @dataclass
 class Extracted:
-    dk_pn: str | None = None
+    dk_pn: str | None = None  # the DigiKey number (ends in -ND) the label shows, the surest thing to search for
+    dk_pns: list[str] = field(default_factory=list)  # all of them, most repeated first (a photo can show several bags)
     qty: int | None = None
     lot: str = ""
     date_code: str = ""
@@ -64,6 +65,23 @@ def variants(tok: str) -> list[str]:
     return out[:4]
 
 
+def digikey_numbers(text: str) -> list[str]:
+    """DigiKey part numbers in OCR text, e.g. 296-19733-5-ND. Forgives what OCR does to them: long dashes, spaces around
+    the hyphens, a missing hyphen before ND, ND read as NO or N0, and O/I/L for 0/1 in the leading digits."""
+    t = re.sub(r"[\u2010-\u2015\u2212]", "-", text.upper())
+    t = re.sub(r"\s*-\s*", "-", t)
+    found = Counter()
+    for tok in re.findall(r"[A-Z0-9][A-Z0-9._/+%()\-]{4,60}", t):
+        m = re.fullmatch(r"([0-9OIL]{1,6})-([A-Z0-9][A-Z0-9._/+%()\-]*?)-?N[D0O]", tok)
+        if not m or not any(c.isdigit() for c in m.group(2)):
+            continue
+        lead = m.group(1).translate(str.maketrans("OIL", "011"))
+        pn = f"{lead}-{m.group(2).strip('-')}-ND"
+        if DK_PN.match(pn):
+            found[pn] += 1
+    return [pn for pn, _ in found.most_common()]
+
+
 def similarity(a: str, b: str) -> float:
     norm = lambda s: re.sub(r"[^A-Z0-9]", "", s.upper())
     return SequenceMatcher(None, norm(a), norm(b)).ratio()
@@ -83,9 +101,8 @@ def _shape(tok: str) -> float:
 def extract(text: str) -> Extracted:
     up = (text or "").upper()
     ex = Extracted()
-    flat = re.sub(r"\s*-\s*", "-", up)  # OCR sometimes spaces out the hyphens
-    m = re.search(r"\b\d{1,6}-[A-Z0-9][A-Z0-9._/+%()\-]*-ND\b", flat)
-    ex.dk_pn = m.group(0) if m else None
+    ex.dk_pns = digikey_numbers(up)
+    ex.dk_pn = ex.dk_pns[0] if ex.dk_pns else None
 
     q = Counter(int(n) for n in re.findall(r"(?:QTY\.?|QUANTITY)[:\s]+(\d{1,6})\b", up))
     ex.qty = q.most_common(1)[0][0] if q else None
@@ -117,7 +134,7 @@ def extract(text: str) -> Extracted:
             seen[tok] += 1
     ex.labelled = list(dict.fromkeys(labelled))
     ex.generic = [t for t in sorted(seen, key=lambda t: -(_shape(t) + min(seen[t], 3))) if t not in ex.labelled and t != ex.lot]
-    queries = ([ex.dk_pn] if ex.dk_pn else [])
+    queries = list(ex.dk_pns[:3])
     for t in ex.labelled[:2]:
         queries += variants(t)
     queries += ex.generic[:3]
@@ -133,7 +150,7 @@ def _card(p: dict) -> dict:
             "dk_pn": vs[0]["DigiKeyProductNumber"] if vs else ""}
 
 
-def find_parts(dk, queries: list[str], dk_pn: str | None = None, limit: int = 8, min_score: float = 0.0) -> list[dict]:
+def find_parts(dk, queries: list[str], dk_pns=None, limit: int = 8, min_score: float = 0.0) -> list[dict]:
     """DigiKey parts that match what the OCR read, closest first. Stops early once a query matches a part number exactly."""
     found: dict[tuple, dict] = {}
 
@@ -143,13 +160,15 @@ def find_parts(dk, queries: list[str], dk_pn: str | None = None, limit: int = 8,
         if key not in found or score > found[key]["score"]:
             found[key] = {**c, "score": round(score, 3)}
 
-    if dk_pn:
-        p = dk.lookup(dk_pn, dk_pn)
+    dk_pns = [dk_pns] if isinstance(dk_pns, str) else list(dk_pns or [])
+    for pn in dk_pns:  # a DigiKey number names exactly one part: look each one up directly
+        p = dk.lookup(pn, pn)
         if p:
             add(p, 1.0)
-            return list(found.values())
+    if found:
+        return list(found.values())[:limit]
     for q in queries:
-        if q == dk_pn:
+        if q in dk_pns:
             continue
         best = 0.0
         for p in dk.search(q, 5):

@@ -94,3 +94,27 @@ def test_weak_matches_are_hidden_for_ocr_but_not_for_typed_searches():
     dk = DK({"ZZ9999XX": [prod("LM358DR")]})
     assert find_parts(dk, ["ZZ9999XX"], min_score=0.55) == []
     assert [c["mpn"] for c in find_parts(dk, ["ZZ9999XX"])] == ["LM358DR"]
+
+
+def test_digikey_numbers_survive_typical_ocr_damage():
+    from invscan.ocr import digikey_numbers
+    want = ["296-19733-5-ND"]
+    for text in ("296-19733-5-ND", "296 - 19733 - 5 - ND", "296–19733–5–ND", "296-19733-5-NO", "296-19733-5-N0",
+                 "296-19733-5ND", "PN: 296-19733-5-ND QTY 5", "2O6-19733-5-ND".replace("2O6", "296")):
+        assert digikey_numbers(text) == want, text
+    assert digikey_numbers("2521-IS32CG5317EVK_KIT-ND") == ["2521-IS32CG5317EVK_KIT-ND"]
+    assert digikey_numbers("1528-4939-ND") == ["1528-4939-ND"]
+
+
+def test_ordinary_words_and_part_numbers_are_not_digikey_numbers():
+    from invscan.ocr import digikey_numbers
+    assert digikey_numbers("RESEARCH-AND-DEVELOPMENT 3-ND LM358DR 1-AND MC9S08PA60AVLF") == []
+    assert digikey_numbers("SEALED DATE 06NOV26 FPXND") == []
+
+
+def test_every_digikey_number_on_the_photo_is_tried_and_the_rest_skipped():
+    e = extract("PN 296-19733-5-ND\nPN 1528-4939-NO\n(30P) TYPE MC9S08PA60AVLF")
+    assert e.dk_pns == ["296-19733-5-ND", "1528-4939-ND"] and e.queries[:2] == e.dk_pns
+    dk = DK({"lookup": prod("4939", "Adafruit Industries LLC", "1528-4939-ND")})
+    r = find_parts(dk, e.queries, e.dk_pns)
+    assert [c["dk_pn"] for c in r] == ["1528-4939-ND"] and dk.asked == []  # no keyword guessing once a DigiKey number resolved
