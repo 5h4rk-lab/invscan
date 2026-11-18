@@ -362,14 +362,14 @@ def categories():
 
 
 @app.get("/api/browse", dependencies=[Depends(auth)])
-def browse(category: int | None = None, q: str = "", sort: str = "", f: list[str] = Query(default=[])):
+def browse(category: int | None = None, q: str = "", sort: str = "", f: list[str] = Query(default=[]), wide: bool = False):
     """Parts in a category (and below) with DigiKey-style filters. f is repeated as 'Spec name::value'."""
     selected: dict[str, list[str]] = {}
     for item in f:
         if "::" in item:
             n, v = item.split("::", 1)
             selected.setdefault(n, []).append(v)
-    return browse_parts(inv(), category, q.strip(), sort, selected)
+    return browse_parts(inv(), category, q.strip(), sort, selected, wide)
 
 
 @app.get("/api/peek/part/{pk}", dependencies=[Depends(auth)])

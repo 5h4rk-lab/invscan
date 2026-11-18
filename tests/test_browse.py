@@ -180,3 +180,38 @@ def test_enrichment_replaces_the_placeholder_description_but_keeps_one_you_typed
     inv = Inv("My own words")
     enrich_part(inv, 1, prod)
     assert not any("description" in b for b in inv.patches)
+
+
+class BrowseInv:
+    """A few parts with specs, shaped like InvenTree's answers."""
+
+    def __init__(self, n=14):
+        self.parts = [{"pk": i, "name": f"R{i}", "description": "res", "thumbnail": None, "total_in_stock": i, "category_name": "Resistors",
+                       "category": 5, "creation_date": "2026-11-01"} for i in range(1, n + 1)]
+        self.params = []
+        for i in range(1, n + 1):  # 14 distinct resistances, 2 tolerances, one spec only some parts have
+            self.params += [{"template": 1, "model_id": i, "data": f"{i * 10} Ohms"}, {"template": 2, "model_id": i, "data": "1%" if i % 2 else "5%"}]
+            if i < 3:
+                self.params.append({"template": 3, "model_id": i, "data": "AEC-Q200"})
+
+    def list(self, path, **q):
+        return [{"pk": 1, "name": "Resistance"}, {"pk": 2, "name": "Tolerance"}, {"pk": 3, "name": "Qualification"}]
+
+    def get(self, path, **q):
+        if path == "parameter/":
+            return {"results": self.params, "next": None}
+        return {"results": self.parts}
+
+
+def test_wide_browse_lists_every_value_and_gives_the_table_its_columns():
+    from invscan.browse import browse, invalidate
+    invalidate()
+    narrow = browse(BrowseInv(), 5, "", "", {})
+    assert len(next(f for f in narrow["facets"] if f["name"] == "Resistance")["values"]) == 12  # a phone sheet shows 12
+    invalidate()
+    wide = browse(BrowseInv(), 5, "", "", {}, wide=True)
+    assert len(next(f for f in wide["facets"] if f["name"] == "Resistance")["values"]) == 14  # the panel scrolls, so it gets them all
+    assert wide["columns"][:2] == ["Resistance", "Tolerance"]  # the specs most parts have come first
+    row = next(p for p in wide["parts"] if p["id"] == 1)
+    assert row["cols"]["Resistance"] == "10 Ohms" and row["cols"]["Tolerance"] == "1%"
+    assert next(p for p in wide["parts"] if p["id"] == 9)["cols"].get("Qualification", "") == ""  # missing spec: empty cell

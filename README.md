@@ -10,6 +10,10 @@ It is a small web app that sits next to InvenTree and talks to its API. Nothing 
 
 `python scripts/demo_server.py` serves the real pages with sample data (no InvenTree, DigiKey or PIN needed; nothing is saved), at http://127.0.0.1:8800. Handy for working on the design.
 
+## Browsing like DigiKey
+
+**Find** opens a product index: every category with its sub-categories and part counts, and a box to filter them. A category page has a column of checkbox filters for each spec (with counts, and a search box inside long lists) and a table of the parts with the most common specs as sortable columns, paging, and a CSV download of the filtered table.
+
 ## Rooms and places
 
 The **Places** tab lists your rooms, with the cabinets, drawers and bins inside each. When you say where bags are going, you pick the room first, then choose the cabinet, drawer and bin from what already exists (or type a new name to create it), so names stay consistent. A cabinet that is not in any room is listed under "Not in a room" with a button to move it into one, and any place page can add a cabinet, drawer or bin inside it.

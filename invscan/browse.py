@@ -5,6 +5,7 @@ import time
 HIDDEN = {"Last Scanned", "Category lookup"}  # our own bookkeeping, not specs
 _cache: dict = {"t": 0.0, "idx": {}}
 TTL = 30.0
+COLUMNS = 5  # spec columns in the results table
 
 
 def natural_key(s: str):
@@ -72,7 +73,8 @@ def compute_facets(items: list[dict], selected: dict[str, list[str]], max_facets
     return ids, facets[:max_facets] + [f for f in facets[max_facets:] if any(v["selected"] for v in f["values"])]
 
 
-def browse(inv, category: int | None, q: str, sort: str, selected: dict[str, list[str]]) -> dict:
+def browse(inv, category: int | None, q: str, sort: str, selected: dict[str, list[str]], wide: bool = False) -> dict:
+    """wide: every filter and every value (for the filter panel and table), not just the handful a phone sheet can hold."""
     query = {"limit": 1000}
     if category:
         query.update(category=category, cascade="true")
@@ -81,8 +83,15 @@ def browse(inv, category: int | None, q: str, sort: str, selected: dict[str, lis
     parts = inv.get("part/", **query)
     parts = parts["results"] if isinstance(parts, dict) else parts
     idx = param_index(inv)
-    ids, facets = compute_facets([{"id": p["pk"], "params": idx.get(p["pk"], {})} for p in parts], selected)
+    ids, facets = compute_facets([{"id": p["pk"], "params": idx.get(p["pk"], {})} for p in parts], selected,
+                                 max_facets=40 if wide else 8, max_values=300 if wide else 12)
     keep = set(ids)
+    coverage: dict[str, int] = {}  # which specs most of the results have: they become the table's columns
+    for p in parts:
+        if p["pk"] in keep:
+            for n in idx.get(p["pk"], {}):
+                coverage[n] = coverage.get(n, 0) + 1
+    columns = [n for n, _ in sorted(coverage.items(), key=lambda kv: (-kv[1], kv[0]))][:COLUMNS]
     rows = []
     for p in parts:
         if p["pk"] not in keep:
@@ -91,11 +100,12 @@ def browse(inv, category: int | None, q: str, sort: str, selected: dict[str, lis
         shown = [n for n in selected if n in specs] + [n for n in specs if n not in selected]
         rows.append({"id": p["pk"], "name": p["name"], "description": p["description"], "thumbnail": p.get("thumbnail"),
                      "total": p.get("total_in_stock") or 0, "category": p.get("category_name"), "category_id": p.get("category"),
-                     "created": p.get("creation_date") or "", "specs": [{"name": n, "value": specs[n]} for n in shown[:3]]})
+                     "created": p.get("creation_date") or "", "specs": [{"name": n, "value": specs[n]} for n in shown[:3]],
+                     "cols": {n: specs.get(n, "") for n in columns}})
     if sort == "name":
         rows.sort(key=lambda r: natural_key(r["name"]))
     elif sort == "stock":
         rows.sort(key=lambda r: -r["total"])
     elif sort == "newest":
         rows.sort(key=lambda r: r["created"], reverse=True)
-    return {"total": len(rows), "parts": rows[:200], "facets": facets}
+    return {"total": len(rows), "parts": rows[:1000 if wide else 200], "facets": facets, "columns": columns}

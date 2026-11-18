@@ -645,18 +645,27 @@ async function renderBrowse(box) {
   let rows = [], total = 0;
   try { if (!state.cats.length) await loadCats(); const r = await api("/api/browse?sort=newest"); rows = r.parts; total = r.total; } catch (e) { if (!state.cats.length) { box.innerHTML = `<div class="card">${esc(e.message)}</div>`; return; } }
   if (seq !== findSeq || $("#q").value.trim()) return;  // the box changed while this loaded
-  const kids = treeKids(), roots = kids.get(0) || [], thumbs = new Map();
-  rows.forEach(p => { const r = rootOf(p.category_id); if (!r || !p.thumbnail) return; const a = thumbs.get(r.id) || []; if (a.length < 3 && !a.includes(p.thumbnail)) a.push(p.thumbnail); thumbs.set(r.id, a); });
+  const kids = treeKids(), roots = kids.get(0) || [];
   $("#findSub").textContent = roots.length ? `${total || state.cats.reduce((n, c) => n + (c.parent ? 0 : c.count), 0)} parts in ${roots.length} ${roots.length === 1 ? "category" : "categories"}` : "";
-  const tile = c => {
-    const subs = kids.get(c.id) || [], ph = thumbs.get(c.id) || [];
-    return `<a class="ctile" href="#cat/${c.id}" data-peekcat="${c.id}"><span class="stack">${ph.length ? ph.map(t => `<img src="${esc(t)}" alt="" loading="lazy">`).join("") : `<i class="glyph">${esc(c.name.slice(0, 1))}</i>`}</span><span class="n">${esc(c.count)}</span>
-      <b>${esc(c.name)}</b><small>${esc(subs.slice(0, 3).map(k => k.name).join(", "))}${subs.length > 3 ? ", more" : ""}</small></a>`;
+  const sec = c => {
+    const subs = kids.get(c.id) || [];
+    return `<section class="idxsec" data-n="${esc((c.name + " " + subs.map(k => k.name).join(" ")).toLowerCase())}"><h3><a href="#cat/${c.id}">${esc(c.name)}</a><small>${esc(c.count)} ${c.count === 1 ? "part" : "parts"}</small></h3>
+      ${subs.length ? `<div class="idxcols">${subs.map(k => `<a href="#cat/${k.id}" data-n="${esc(k.name.toLowerCase())}"><span>${esc(k.name)}</span><small>${esc(k.count)}</small></a>`).join("")}</div>` : ""}</section>`;
   };
   box.innerHTML = organiseBanner() + (roots.length
-    ? `<h2 style="margin-top:12px">Categories <small>${roots.length}</small></h2><div class="tiles">${roots.map(tile).join("")}</div>`
+    ? `<div class="idxhead"><h2 style="margin:12px 0 0">Product index <small>${roots.length}</small></h2><input id="idxQ" class="field sm" type="search" placeholder="Filter categories" autocomplete="off" aria-label="Filter categories"></div>
+       <div id="idx">${roots.map(sec).join("")}</div><div class="empty-state" id="idxNone" hidden>No category matches.</div>`
       + (rows.length ? `<h2>Recently added</h2><div class="list">${rows.slice(0, 6).map(p => `<a class="row catrow" href="#part/${p.id}" data-peek="${p.id}">${img(p.thumbnail, p.name)}<div class="body"><div class="name">${esc(p.name)}</div><div class="desc">${esc(p.description || "")}</div></div><div class="qty">${esc(p.total)}<small>in stock</small></div></a>`).join("")}</div>` : "")
     : `<div class="list"><div class="empty-state">Nothing to browse yet. Scan a bag and its category appears here.</div></div>`);
+  const iq = $("#idxQ"); if (iq) iq.oninput = () => {  // narrow the index as you type; a matching heading keeps all its sub-categories
+    const q = iq.value.trim().toLowerCase(); let shown = 0;
+    box.querySelectorAll(".idxsec").forEach(sc => {
+      const head = sc.querySelector("h3 a").textContent.toLowerCase().includes(q); let any = head || !q;
+      sc.querySelectorAll(".idxcols a").forEach(a => { const m = head || !q || a.dataset.n.includes(q); a.hidden = !m; any = any || m; });
+      sc.hidden = !any; shown += any ? 1 : 0;
+    });
+    $("#idxNone").hidden = shown > 0;
+  };
   wireOrganise(box);
 }
 async function runFind() {
@@ -822,46 +831,100 @@ document.addEventListener("click", e => {
   if (row) { e.preventDefault(); e.stopPropagation(); peekSheet(+row.dataset.peek); }
 }, true);
 
-const SORTS = [["relevance", "Best match"], ["newest", "Newest"], ["name", "Name"], ["stock", "Most stock"]];
+/* a category page the way DigiKey does it: filter columns with counts, a table with sortable spec columns, paging */
+const nk = t => String(t).toLowerCase().split(/(\d+(?:\.\d+)?)/).filter(Boolean).map(x => /^\d/.test(x) ? parseFloat(x) : x);
+function natCmp(a, b) {  // '4.7 uF' < '22 uF' < '100 uF'
+  const x = nk(a), y = nk(b);
+  for (let i = 0; i < Math.min(x.length, y.length); i++) {
+    if (x[i] === y[i]) continue;
+    if (typeof x[i] === typeof y[i]) return x[i] < y[i] ? -1 : 1;
+    return typeof x[i] === "number" ? -1 : 1;
+  }
+  return x.length - y.length;
+}
+let catData = null;
 async function loadCat(id) {
   if (!state.cats.length) await loadCats();
   const c = state.cats.find(x => x.id === id), top = $("#catTop");
   if (!c) { top.innerHTML = '<div class="card">That category no longer exists.</div>'; $("#catRes").innerHTML = ""; return; }
+  Object.assign(state.cat, { page: 1, per: state.cat.per || 25, tsort: state.cat.tsort || null, fq: state.cat.fq || {}, stock: !!state.cat.stock });
   const kids = catKids(id);
-  top.innerHTML = `<div class="crumbs" style="margin-top:6px">${crumbs(c)}</div><h1 style="font-size:28px;margin:0">${esc(c.name)}</h1>
+  top.innerHTML = `<div class="crumbs" style="margin-top:6px">${crumbs(c)}</div>
+    <div class="findhead"><h1 style="font-size:28px">${esc(c.name)}</h1><span class="muted sm" id="catCount"></span></div>
     ${kids.length ? `<div class="chips">${kids.map(k => `<a class="chip" href="#cat/${k.id}">${esc(k.name)} <small>${k.count}</small></a>`).join("")}</div>` : ""}
-    <div class="controls"><input id="catQ" class="field" type="search" placeholder="Search in ${esc(c.name)}" value="${esc(state.cat.q)}" autocomplete="off">
-    <select id="catSort" class="field" aria-label="Sort by">${SORTS.map(([v, l]) => `<option value="${v}" ${state.cat.sort === v ? "selected" : ""}>${l}</option>`).join("")}</select></div>`;
+    <div class="controls cc"><input id="catQ" class="field" type="search" placeholder="Search within ${esc(c.name)}" value="${esc(state.cat.q)}" autocomplete="off">
+    <label class="tog"><input type="checkbox" id="catStock" ${state.cat.stock ? "checked" : ""}><span>In stock</span></label></div>`;
   let dt; $("#catQ").oninput = e => { clearTimeout(dt); dt = setTimeout(() => { state.cat.q = e.target.value.trim(); loadCatResults(); }, 250); };
-  $("#catSort").onchange = e => { state.cat.sort = e.target.value; loadCatResults(); };
+  $("#catStock").onchange = e => { state.cat.stock = e.target.checked; state.cat.page = 1; renderTable(); };
   loadCatResults();
 }
 async function loadCatResults() {
   const box = $("#catRes"), c = state.cat;
-  const qs = new URLSearchParams({ category: c.id, q: c.q, sort: c.sort }); Object.entries(c.f).forEach(([n, vs]) => vs.forEach(v => qs.append("f", n + "::" + v)));
-  if (!box.firstChild) box.innerHTML = `<div class="list">${'<div class="row"><div class="thumb empty sk"></div><div class="body"><div class="sk" style="width:55%"></div><div class="sk" style="width:80%;margin-top:8px"></div></div></div>'.repeat(3)}</div>`;
+  const qs = new URLSearchParams({ category: c.id, q: c.q, sort: "newest", wide: "1" }); Object.entries(c.f).forEach(([n, vs]) => vs.forEach(v => qs.append("f", n + "::" + v)));
+  if (!box.firstChild) box.innerHTML = SKEL_ROWS(3);
   try {
-    const r = await api("/api/browse?" + qs);
-    const pills = Object.entries(c.f).flatMap(([n, vs]) => vs.map(v => `<button class="pill" data-rm="${esc(n)}::${esc(v)}">${esc(n)}: ${esc(v)} <b>&times;</b></button>`)).join("");
+    catData = await api("/api/browse?" + qs); c.page = 1;
     const cat = state.cats.find(x => x.id === c.id);
-    box.innerHTML = (cat && cat.name === "Unsorted" ? organiseBanner() : "")
-      + (r.facets.length ? `<div class="facets">${r.facets.map((f, i) => `<button class="chip ${f.values.some(v => v.selected) ? "on" : ""}" data-f="${i}">${esc(f.name)} <small>${f.values.length}</small></button>`).join("")}</div>` : "")
-      + (pills ? `<div class="pills">${pills}</div>` : "")
-      + `<h2 style="margin-top:6px">${r.total} ${r.total === 1 ? "part" : "parts"}</h2>`
-      + (r.parts.length ? `<div class="list">${r.parts.map(p => `<a class="row catrow" href="#part/${p.id}" data-peek="${p.id}">${img(p.thumbnail, p.name)}<div class="body"><div class="name">${esc(p.name)}</div><div class="desc">${esc(p.description || "")}</div>
-          ${p.specs.length ? `<div class="specs">${p.specs.map(s => `<span class="sv" title="${esc(s.name)}">${esc(s.value)}</span>`).join("")}</div>` : ""}</div>
-          <div class="qty">${esc(p.total)}<small>in stock</small></div></a>`).join("")}</div>`
-        : `<div class="list"><div class="empty-state">No parts match.${Object.keys(c.f).length ? " Remove a filter to see more." : ""}</div></div>`);
-    box.querySelectorAll("[data-f]").forEach(b => b.onclick = () => facetSheet(r.facets[+b.dataset.f]));
-    box.querySelectorAll("[data-rm]").forEach(b => b.onclick = () => { const [n, v] = b.dataset.rm.split("::"); state.cat.f[n] = (state.cat.f[n] || []).filter(x => x !== v); if (!state.cat.f[n].length) delete state.cat.f[n]; loadCatResults(); });
-    wireOrganise(box);
+    box.innerHTML = (cat && cat.name === "Unsorted" ? organiseBanner() : "") + `<div id="fBox"></div><div id="tBox"></div>`;
+    renderFilters(); renderTable(); wireOrganise(box);
   } catch (e) { box.innerHTML = `<div class="card">${esc(e.message)}</div>`; }
 }
-function facetSheet(f) {
-  openSheet(`<h3>${esc(f.name)}</h3><div class="checks">${f.values.map(v => `<label class="chk"><input type="checkbox" name="v" value="${esc(v.value)}" ${v.selected ? "checked" : ""}><span>${esc(v.value)}</span><small>${v.count}</small></label>`).join("")}</div>
-    <button class="btn primary" type="submit">Show results</button><button class="btn quiet" type="button" id="clrF">Clear this filter</button>`,
-    fd => { const vs = fd.getAll("v"); if (vs.length) state.cat.f[f.name] = vs; else delete state.cat.f[f.name]; loadCatResults(); });
-  $("#clrF").onclick = () => { delete state.cat.f[f.name]; $("#sheet").close(); loadCatResults(); };
+function renderFilters() {
+  const r = catData, c = state.cat, box = $("#fBox"); if (!box) return;
+  const open = state.fOpen ?? matchMedia("(min-width: 700px)").matches, nSel = Object.values(c.f).reduce((n, v) => n + v.length, 0);
+  const pills = Object.entries(c.f).flatMap(([n, vs]) => vs.map(v => `<button class="pill" data-rm="${esc(n)}::${esc(v)}">${esc(n)}: ${esc(v)} <b>&times;</b></button>`)).join("");
+  box.innerHTML = r.facets.length ? `<details class="fdet" ${open ? "open" : ""}><summary><b>Filters</b> <small>${r.facets.length}</small>${nSel ? `<span class="badge">${nSel} on</span>` : ""}</summary>
+      <div class="fgrid">${r.facets.map((f, i) => `<div class="fcol"><div class="fh">${esc(f.name)}</div>
+        ${f.values.length > 7 ? `<input class="field sm" type="search" data-fs="${i}" placeholder="Search filter" autocomplete="off">` : ""}
+        <div class="fl">${f.values.map(v => `<label class="chk"><input type="checkbox" data-fn="${i}" value="${esc(v.value)}" ${v.selected ? "checked" : ""}><span>${esc(v.value)}</span><small>${v.count}</small></label>`).join("")}</div></div>`).join("")}</div></details>` : "";
+  box.insertAdjacentHTML("beforeend", pills ? `<div class="pills">${pills}<button class="btn quiet sm" id="clrAll">Clear all</button></div>` : "");
+  box.querySelector("details")?.addEventListener("toggle", e => { state.fOpen = e.target.open; });
+  box.querySelectorAll("[data-fn]").forEach(cb => cb.onchange = () => {
+    const f = r.facets[+cb.dataset.fn], vs = [...box.querySelectorAll(`[data-fn="${cb.dataset.fn}"]:checked`)].map(x => x.value);
+    if (vs.length) c.f[f.name] = vs; else delete c.f[f.name]; loadCatResults();
+  });
+  box.querySelectorAll("[data-fs]").forEach(inp => inp.oninput = () => {  // search inside one filter, without redrawing the panel
+    const q = inp.value.trim().toLowerCase();
+    inp.nextElementSibling.querySelectorAll("label").forEach(l => { l.hidden = !!q && !l.firstElementChild.value.toLowerCase().includes(q); });
+  });
+  box.querySelectorAll("[data-rm]").forEach(b => b.onclick = () => { const [n, v] = b.dataset.rm.split("::"); c.f[n] = (c.f[n] || []).filter(x => x !== v); if (!c.f[n].length) delete c.f[n]; loadCatResults(); });
+  const ca = $("#clrAll"); if (ca) ca.onclick = () => { c.f = {}; loadCatResults(); };
+}
+function catRows() {
+  const c = state.cat; let rows = catData.parts.filter(p => !c.stock || p.total > 0);
+  if (c.tsort) {
+    const { k, dir } = c.tsort, val = p => k === "__name" ? p.name : k === "__stock" ? p.total : (p.cols[k] || "");
+    rows = rows.slice().sort((a, b) => {
+      const x = val(a), y = val(b); if (k === "__stock") return (x - y) * dir;
+      if (!x && y) return 1; if (x && !y) return -1;  // empty cells always last
+      return natCmp(x, y) * dir;
+    });
+  }
+  return rows;
+}
+function renderTable() {
+  const r = catData, c = state.cat, box = $("#tBox"); if (!box) return;
+  const rows = catRows(), per = c.per, pages = Math.max(1, Math.ceil(rows.length / per)); c.page = Math.min(c.page, pages);
+  const from = rows.length ? (c.page - 1) * per + 1 : 0, to = Math.min(rows.length, c.page * per);
+  $("#catCount") && ($("#catCount").textContent = `Results: ${rows.length}`);
+  const th = (k, label, cls = "") => `<th class="${cls}" data-k="${esc(k)}" aria-sort="${c.tsort?.k === k ? (c.tsort.dir > 0 ? "ascending" : "descending") : "none"}"><button type="button">${esc(label)}<i>${c.tsort?.k === k ? (c.tsort.dir > 0 ? "▲" : "▼") : ""}</i></button></th>`;
+  box.innerHTML = rows.length ? `<div class="tblbar"><span class="sm muted">Showing <b>${from}-${to}</b> of ${rows.length}</span>
+      <span class="tblctl"><select id="perPage" class="field sm" aria-label="Rows per page">${[25, 50, 100].map(n => `<option ${n === per ? "selected" : ""}>${n}</option>`).join("")}</select>
+      <button class="btn sm" type="button" id="csv">Download CSV</button></span></div>
+    <div class="tblwrap"><table class="dtable"><thead><tr>${th("__name", "Part", "pcell")}${th("__stock", "In stock", "num")}${r.columns.map(n => th(n, n)).join("")}</tr></thead>
+    <tbody>${rows.slice(from - 1, to).map(p => `<tr data-peek="${p.id}" data-id="${p.id}"><td class="pcell"><a class="pc" href="#part/${p.id}">${img(p.thumbnail, p.name)}<span><b>${esc(p.name)}</b><small>${esc(p.description || "")}</small></span></a></td>
+      <td class="num">${esc(p.total)}</td>${r.columns.map(n => `<td>${esc(p.cols[n] || "")}</td>`).join("")}</tr>`).join("")}</tbody></table></div>
+    <div class="pager"><button class="btn sm" type="button" id="pPrev" ${c.page <= 1 ? "disabled" : ""}>Previous</button><span class="sm muted">Page ${c.page} of ${pages}</span><button class="btn sm" type="button" id="pNext" ${c.page >= pages ? "disabled" : ""}>Next</button></div>`
+    : `<div class="list"><div class="empty-state">No parts match.${Object.keys(c.f).length || c.stock ? " Remove a filter to see more." : ""}</div></div>`;
+  box.querySelectorAll("th[data-k]").forEach(h => h.onclick = () => { const k = h.dataset.k; c.tsort = c.tsort?.k === k ? (c.tsort.dir > 0 ? { k, dir: -1 } : null) : { k, dir: 1 }; renderTable(); });
+  box.querySelectorAll("tbody tr").forEach(t => t.onclick = e => { if (!e.target.closest("a")) location.hash = "#part/" + t.dataset.id; });
+  const pp = $("#perPage"); if (pp) pp.onchange = () => { c.per = +pp.value; c.page = 1; renderTable(); };
+  const pv = $("#pPrev"), nx = $("#pNext"); if (pv) pv.onclick = () => { c.page--; renderTable(); window.scrollTo(0, $("#tBox").offsetTop - 80); }; if (nx) nx.onclick = () => { c.page++; renderTable(); window.scrollTo(0, $("#tBox").offsetTop - 80); };
+  const cv = $("#csv"); if (cv) cv.onclick = () => {  // the whole filtered table, not just this page
+    const q = t => `"${String(t ?? "").replace(/"/g, '""')}"`, head = ["Part", "Description", "In stock", ...r.columns];
+    const csv = [head.map(q).join(","), ...rows.map(p => [p.name, p.description, p.total, ...r.columns.map(n => p.cols[n] || "")].map(q).join(","))].join("\r\n");
+    const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); a.download = (state.cats.find(x => x.id === c.id)?.name || "parts").replace(/[^\w-]+/g, "_") + ".csv"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  };
 }
 
 /* ---------- item page ---------- */

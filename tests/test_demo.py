@@ -10,7 +10,8 @@ def test_demo_serves_the_page_and_the_shapes_the_screens_read():
     h = c.get("/api/home").json()
     assert set(h) >= {"counts", "recent", "unplaced", "unsorted"} and h["recent"][0]["path"]
     b = c.get("/api/browse", params={"category": 5}).json()
-    assert b["total"] == len(b["parts"]) == 2 and {"id", "name", "thumbnail", "total", "specs"} <= set(b["parts"][0])
+    assert b["total"] == len(b["parts"]) == 6 and {"id", "name", "thumbnail", "total", "specs", "cols"} <= set(b["parts"][0])
+    assert b["columns"][:2] == ["Power (Watts)", "Resistance"] or "Resistance" in b["columns"]
     p = c.get("/api/part/8").json()  # a power supply model lists its configurations
     assert [v["name"] for v in p["variants"]] == ["LRS-350 24V", "LRS-350 12V"] and p["total"] == 3
     assert c.get("/api/part/9").json()["template"]["name"] == "LRS-350"

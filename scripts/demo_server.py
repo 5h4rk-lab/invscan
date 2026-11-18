@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Query, Request
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 
@@ -36,6 +36,10 @@ PARTS = {  # id: name, description, category id, kind (thumbnail), specs, stock 
     8: ("LRS-350", "Mean Well LRS-350 power supply", 12, "psu", [], []),
     9: ("LRS-350 24V", "24V 14.6A 350W power supply", 12, "psu", [("Voltage - Output 1", "24V"), ("Current - Output (Max)", "14.6A"), ("Power (Watts)", "350W")], [("Room 127/Cabinet #1/Shelf 2", 2, "")]),
     10: ("LRS-350 12V", "12V 29A 348W power supply", 12, "psu", [("Voltage - Output 1", "12V"), ("Current - Output (Max)", "29A"), ("Power (Watts)", "348W")], [("Room 127/Cabinet #1/Shelf 2", 1, "")]),
+    12: ("ERA-8AHD330V", "RES SMD 33 OHM 0.5% 1/4W 1206", 5, "res", [("Resistance", "33 Ohms"), ("Tolerance", "±0.5%"), ("Power (Watts)", "0.25W, 1/4W")], [("Room 127/Cabinet #2/Drawer 1", 40, "")]),
+    13: ("ERA-8AHD4701V", "RES SMD 4.7K OHM 0.5% 1/4W 1206", 5, "res", [("Resistance", "4.7 kOhms"), ("Tolerance", "±0.5%"), ("Power (Watts)", "0.25W, 1/4W")], [("Room 127/Cabinet #2/Drawer 1", 0, "")]),
+    14: ("RC1206FR-0710KL", "RES SMD 10K OHM 1% 1/4W 1206", 5, "res", [("Resistance", "10 kOhms"), ("Tolerance", "±1%"), ("Power (Watts)", "0.25W, 1/4W")], [("Room 127/Cabinet #2/Drawer 1", 500, "")]),
+    15: ("CRCW1206100RFKEA", "RES SMD 100 OHM 1% 1/4W 1206", 5, "res", [("Resistance", "100 Ohms"), ("Tolerance", "±1%"), ("Power (Watts)", "0.25W, 1/4W")], [("Room 127/Cabinet #2/Drawer 1", 250, "")]),
     11: ("Dell Latitude laptop", "Spare laptop, charger in the bag", 13, "box", [], [("Unplaced", 1, "Bottom shelf of the grey rack, behind the printer")]),
 }
 INK, COPPER = "#0E4B3C", "#D08A3E"
@@ -106,18 +110,33 @@ def categories():
 
 
 @app.get("/api/browse")
-def browse(category: int | None = None, q: str = "", sort: str = ""):
+def browse(category: int | None = None, q: str = "", sort: str = "", wide: bool = False, f: list[str] = Query(default=[])):
+    sel: dict[str, list[str]] = {}
+    for item in f:
+        n, _, v = item.partition("::")
+        sel.setdefault(n, []).append(v)
     rows = [row(p) for p, v in PARTS.items() if (not category or under(v[2], category)) and (not q or q.lower() in v[0].lower() + v[1].lower())]
+    specs_of = lambda r: {s["name"]: s["value"] for s in PARTS[r["id"]][4] and [{"name": a, "value": b} for a, b in PARTS[r["id"]][4]]}
+    ok = lambda r, skip=None: all(specs_of(r).get(n) in vs for n, vs in sel.items() if vs and n != skip)
+    kept = [r for r in rows if ok(r)]
+    cover: dict = {}
+    for r in kept:
+        for n in specs_of(r):
+            cover[n] = cover.get(n, 0) + 1
+    columns = [n for n, _ in sorted(cover.items(), key=lambda kv: (-kv[1], kv[0]))][:5]
+    for r in kept:
+        r["cols"] = {n: specs_of(r).get(n, "") for n in columns}
     key = {"name": lambda r: r["name"].lower(), "stock": lambda r: -r["total"], "newest": lambda r: r["created"]}.get(sort)
-    key and rows.sort(key=key, reverse=sort == "newest")
-    specs: dict = {}
-    for r in rows:
-        for s in r["specs"]:
-            specs.setdefault(s["name"], {}).setdefault(s["value"], 0)
-            specs[s["name"]][s["value"]] += 1
-    facets = [{"name": n, "coverage": sum(v.values()), "values": [{"value": a, "count": c, "selected": False} for a, c in v.items()]}
-              for n, v in specs.items() if len(rows) > 1 and len(v) > 1]
-    return {"total": len(rows), "parts": rows, "facets": facets}
+    key and kept.sort(key=key, reverse=sort == "newest")
+    facets = []
+    for n in cover:
+        counts: dict = {}
+        for r in rows:
+            if n in specs_of(r) and ok(r, skip=n):
+                counts[specs_of(r)[n]] = counts.get(specs_of(r)[n], 0) + 1
+        if len(counts) > 1 or sel.get(n):
+            facets.append({"name": n, "coverage": cover[n], "values": [{"value": a, "count": c, "selected": a in sel.get(n, [])} for a, c in counts.items()]})
+    return {"total": len(kept), "parts": kept, "facets": facets, "columns": columns}
 
 
 @app.get("/api/find")
