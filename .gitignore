@@ -16,3 +16,6 @@ labels/
 .swarm/
 .claude/
 label_templates/marks/owner_*.png
+# your own branding (see README): not committed, so a clone gets the generic hen
+public/brand/
+label_templates/marks/logo.png

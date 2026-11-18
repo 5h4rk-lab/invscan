@@ -10,6 +10,14 @@ It is a small web app that sits next to InvenTree and talks to its API. Nothing 
 
 `python scripts/demo_server.py` serves the real pages with sample data (no InvenTree, DigiKey or PIN needed; nothing is saved), at http://127.0.0.1:8800. Handy for working on the design.
 
+## Your own logo
+
+Without any setup the app shows a small generic hen. To use your own logo, drop these in (they are git-ignored, so they are never committed):
+
+- `public/brand/logo.png`: the header logo (about 360 px tall, transparent background)
+- `public/brand/icon-64.png` and `icon-180.png`: browser tab and phone home-screen icons
+- `label_templates/marks/logo.png`: a 1-bit (black and white) version for the thermal labels; run `scripts/install_labels.py` again to update them
+
 ## Why
 
 InvenTree's built-in DigiKey barcode plugin identifies a scan, but it needs the supplier part and purchase order to

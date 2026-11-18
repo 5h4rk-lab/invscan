@@ -34,7 +34,7 @@ def _img(path: Path) -> str:
 def mark_block(owner_expr: str | None) -> str:
     """Small corner mark: a per-owner picture when MARKS has owner_<NAME>.png (name as shown by InvenTree, e.g.
     owner_EV.png for the user 'EV'), otherwise the default hen. Owners without a picture get the default."""
-    hen = MARKS / "hen.png"
+    hen = MARKS / "logo.png" if (MARKS / "logo.png").exists() else MARKS / "hen.png"  # your own logo (kept out of git) wins over the generic hen
     default = _img(hen) if hen.exists() else ""
     if not owner_expr:
         return default
