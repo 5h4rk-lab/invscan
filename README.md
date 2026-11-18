@@ -35,6 +35,9 @@ small bags into drawers.
   Package and so on). **Sort them** files existing Unsorted parts the same way, and parts with no supplier record at all (a laptop, a
   hand-made board) go to **Miscellaneous**, which is also the default for parts you add by hand, and Edit lets you change a part's
   category by hand.
+- **Labels with no readable square code.** "Read the label text" (and any photo with no code in it) runs OCR in the browser, at a few
+  angles because bags are rarely square, then searches DigiKey for the part number it read and fixes common misreads (O for 0, G for 6).
+  You pick the matching part from the list; nothing is added until you confirm. The text reader (Tesseract, about 7 MB) loads only when used.
 - **Power supplies with several configurations.** "Add power supply" keeps one model (say LRS-350) as a template part and each
   voltage as its own variant with its own stock and bin, under Supplies > Power Supplies. Specs use DigiKey's parameter names,
   so the voltage, current and wattage filters work across typed-in and DigiKey supplies.

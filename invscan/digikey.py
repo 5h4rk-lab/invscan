@@ -54,6 +54,18 @@ class DigiKey:
         exact = choose_product(r.json().get("Products", []), mpn, sku, manufacturer, self)
         return exact
 
+    def search(self, term: str, limit: int = 6) -> list[dict]:
+        """Raw DigiKey keyword results for free text (OCR output, a typed search). Never raises on network trouble."""
+        if not self.enabled or not (term or "").strip():
+            return []
+        try:
+            r = requests.post(f"{API}/products/v4/search/keyword", timeout=20, json={"Keywords": term.strip(), "Limit": limit},
+                              headers=self._headers())
+            r.raise_for_status()
+        except requests.RequestException:
+            return []
+        return r.json().get("Products", [])
+
 
 def _norm(s: str) -> str:
     return "".join(c for c in (s or "").lower() if c.isalnum())

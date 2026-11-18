@@ -19,6 +19,7 @@ from .mouser import MOUSER_PN, Mouser, mpn_from_pn
 from .ingest import add_manual, elsewhere, find_part, ingest
 from .locations import LABEL_PREFIX, add_room, ensure_path, has_room, parse_label, place_path
 from .notes import get_note, set_note
+from .ocr import extract, find_parts
 from .organise import organise
 from .parser import ScanError, parse_scan
 from .supplies import KINDS, add_power_supply, models as supply_models
@@ -150,6 +151,11 @@ class SupplyIn(BaseModel):
     connector: str | None = None
     mounting: str | None = None
     description: str | None = None
+
+
+class OcrIn(BaseModel):
+    text: str
+    term: str | None = None  # a search the person typed, instead of what was read from the label
 
 
 class PlaceIn(BaseModel):
@@ -297,6 +303,17 @@ def new_supply(body: SupplyIn):
         raise HTTPException(422, r.message)
     invalidate_index()
     return _bag_response(r, body.model.strip(), body.qty)
+
+
+@app.post("/api/ocr", dependencies=[Depends(auth)])
+def ocr(body: OcrIn):
+    """Text read off a label with no readable square code: what it seems to say, and DigiKey parts that match it."""
+    ex = extract(body.text[:20000])
+    term = (body.term or "").strip()
+    queries = [term] if term else ex.queries
+    results = find_parts(dk(), queries, None if term else ex.dk_pn) if dk().enabled else []
+    return {"qty": ex.qty, "lot": ex.lot, "date_code": ex.date_code, "queries": queries, "results": results,
+            "digikey": dk().enabled}
 
 
 @app.post("/api/part/{pk}/image", dependencies=[Depends(auth)])

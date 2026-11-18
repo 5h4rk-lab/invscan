@@ -397,12 +397,82 @@ $("#photo").onchange = async e => {
     const t = await readImage(bm, w, h, x => x.drawImage(bm, 0, 0, w, h), true);
     state.last = "";
     if (t) handleCode(t.text, { mouser_pn: t.mouser_pn }); else {
-      showResult("err", "No code found in the photo", { mpn: "" }, `Move closer, keep the label flat and avoid glare. If the square code is worn, torn or covered, no scanner can read it: type the part number instead.<div style="margin-top:10px"><button class="btn sm primary" id="dmgFail" type="button">Type the part number</button></div>`);
-      const fb = $("#dmgFail"); if (fb) fb.onclick = () => damagedSheet();
+      ocrFlow(f);  // no square code in the photo: read the printed text instead
     }
   } catch (x) { card("err", `<div class="sm">${esc(x.message)}</div>`); }
   e.target.value = "";
 };
+
+/* ---------- labels with no readable square code: read the text, search DigiKey ---------- */
+const OCR_DIR = new URL("/static/vendor/tess", location.href).href, OCR_ANGLES = [0, -12, 12, -6, 6];  // glossy bags are rarely held square
+let ocrWorker = null;
+async function ocrLoad() {
+  if (ocrWorker) return ocrWorker;
+  if (!window.Tesseract) await new Promise((ok, no) => { const sc = document.createElement("script"); sc.src = OCR_DIR + "/tesseract.min.js"; sc.onload = ok; sc.onerror = () => no(new Error("Could not load the text reader")); document.head.appendChild(sc); });
+  const w = await Tesseract.createWorker("eng", 1, { workerPath: OCR_DIR + "/worker.min.js", corePath: OCR_DIR + "/tesseract-core-simd-lstm.wasm.js", langPath: OCR_DIR, gzip: true });
+  await w.setParameters({ tessedit_pageseg_mode: "11", preserve_interword_spaces: "1" });  // 11: scattered text, which is what a label is
+  return (ocrWorker = w);
+}
+function rotated(bm, deg) {
+  const k = Math.min(1, 2400 / Math.max(bm.width, bm.height)), w = bm.width * k, h = bm.height * k, r = deg * Math.PI / 180;
+  const W = Math.round(Math.abs(w * Math.cos(r)) + Math.abs(h * Math.sin(r))), H = Math.round(Math.abs(w * Math.sin(r)) + Math.abs(h * Math.cos(r)));
+  const c = document.createElement("canvas"); c.width = W; c.height = H; const x = c.getContext("2d");
+  x.fillStyle = "#fff"; x.fillRect(0, 0, W, H); x.translate(W / 2, H / 2); x.rotate(r); x.drawImage(bm, -w / 2, -h / 2, w, h);
+  return c;
+}
+async function ocrFlow(file) {
+  let stop = false;
+  openSheet(`<h3>Reading the label</h3><p class="muted sm" id="ocrMsg">Loading the text reader (first time only)...</p><div class="bar"><i id="ocrBar"></i></div>`, null, () => { stop = true; });
+  const step = (msg, f) => { const m = $("#ocrMsg"); if (m) { m.textContent = msg; $("#ocrBar").style.width = Math.round(f * 100) + "%"; } };
+  const parts = [];
+  try {
+    const w = await ocrLoad(), bm = await createImageBitmap(file);
+    for (let i = 0; i < OCR_ANGLES.length && !stop; i++) {
+      step(`Reading the label, pass ${i + 1} of ${OCR_ANGLES.length}...`, i / (OCR_ANGLES.length + 1));
+      parts.push((await w.recognize(rotated(bm, OCR_ANGLES[i]))).data.text);
+    }
+    if (stop) return;
+    step("Searching DigiKey...", OCR_ANGLES.length / (OCR_ANGLES.length + 1));
+    const text = parts.join("\n"), info = await api("/api/ocr", { text });
+    if (stop) return;
+    $("#sheet").close(); await new Promise(r => setTimeout(r, 40));  // let the close event pass before the next sheet opens
+    ocrSheet(info, text);
+  } catch (e) { if (!stop) { $("#sheet").close(); toast(e.message); } }
+}
+function ocrPicks(info) {
+  if (!info.results.length) return `<div class="empty-state">${info.digikey ? "Nothing at DigiKey matched. Check the search text above and search again." : "DigiKey is not set up on this server."}</div>`;
+  return info.results.map((r, i) => `<label class="pick"><input type="radio" name="pick" value="${esc(r.dk_pn || r.mpn)}" ${i === 0 ? "checked" : ""}>
+    ${r.photo.startsWith("https://") ? `<img src="${esc(r.photo)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span class="ph"></span>`}
+    <span><b class="mono">${esc(r.mpn)}</b><small>${esc(r.manufacturer)}${r.score < 0.95 ? ", close match only" : ""}</small><small>${esc(r.description)}</small></span></label>`).join("");
+}
+function ocrSheet(info, text) {
+  openSheet(`<h3>Which part is this?</h3>
+    <p class="muted sm">This is what the photo seems to say. Check the part before you add it; text on a bag is easy to misread.</p>
+    <div class="photo-pick"><input class="field mono" id="ocrQ" value="${esc(info.results[0]?.score >= 0.97 ? info.results[0].mpn : info.queries[0] || "")}" placeholder="Part number" autocapitalize="characters" autocomplete="off" spellcheck="false" style="flex:1"><button class="btn sm" type="button" id="ocrGo">Search DigiKey</button></div>
+    <div class="picks" id="ocrList">${ocrPicks(info)}</div>
+    <label>Quantity<input class="field" name="qty" type="number" inputmode="numeric" min="1" required value="${esc(info.qty || "")}" placeholder="1"></label>
+    <div class="grid2"><label>Lot code (optional)<input class="field" name="lot" value="${esc(info.lot || "")}" autocomplete="off"></label><label>Date code (optional)<input class="field" name="dc" value="${esc(info.date_code || "")}" autocomplete="off"></label></div>
+    ${state.bin ? `<div>${tag(state.bin.path)}</div>` : `<label>Where is it?<textarea class="field" name="note" required placeholder="Blue box under the desk, left side"></textarea></label>`}
+    <details><summary class="sm muted">What I read</summary><pre class="mono sm" style="white-space:pre-wrap;margin-top:6px">${esc(text.replace(/\n\s*\n+/g, "\n").trim().slice(0, 1500))}</pre></details>
+    <button class="btn primary" type="submit">Add this part</button>
+    <button class="btn quiet" type="button" id="ocrType">Type a DigiKey part number instead</button>`,
+    async f => {
+      const pick = f.get("pick");
+      if (!pick) { toast("Pick the matching part, or search again"); return setTimeout(() => ocrSheet(info, text), 60); }
+      const body = { name: pick, qty: +f.get("qty"), location_id: state.bin?.id ?? null, note: (f.get("note") || "").trim() || null, lot_code: (f.get("lot") || "").trim(), date_code: (f.get("dc") || "").trim() };
+      try { finishManual(await api("/api/part/new", body)); } catch (e) { toast(e.message); }
+    });
+  const go = async () => {
+    const q = $("#ocrQ").value.trim(); if (!q) return;
+    $("#ocrList").innerHTML = `<div class="sk" style="height:56px"></div>`;
+    try { $("#ocrList").innerHTML = ocrPicks(await api("/api/ocr", { text, term: q })); } catch (e) { $("#ocrList").innerHTML = ""; toast(e.message); }
+  };
+  $("#ocrGo").onclick = go;
+  $("#ocrQ").onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); go(); } };  // Enter searches; it must not add a part
+  $("#ocrType").onclick = () => { $("#sheet").close(); setTimeout(() => damagedSheet(info.queries[0] || ""), 60); };
+}
+$("#ocrBtn").onclick = () => $("#ocrPhoto").click();
+$("#ocrPhoto").onchange = e => { const f = e.target.files[0]; e.target.value = ""; if (f) ocrFlow(f); };
 
 /* ---------- home ---------- */
 function stockRow(s, extra = "") {

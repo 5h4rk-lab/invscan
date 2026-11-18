@@ -268,3 +268,14 @@ dialog select.field{text-overflow:ellipsis}
 .have>b{font-size:14.5px}
 .hv{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 a.thumb-link,a.thumb-link *{text-decoration:none}
+
+/* OCR: reading progress and the list of DigiKey matches */
+.bar{height:6px;background:var(--raise);border-radius:3px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--copper);transition:width .4s ease}
+.picks{display:grid;gap:8px;grid-template-columns:minmax(0,1fr)}
+.pick{display:flex;gap:10px;align-items:center;padding:10px;border:1px solid var(--line);border-radius:var(--r-m);background:var(--surface);cursor:pointer}
+.pick:has(input:checked){border-color:var(--copper);box-shadow:0 0 0 2px rgba(208,138,62,.3)}
+.pick input{flex:none;accent-color:var(--copper)}
+.pick img,.pick .ph{flex:none;width:48px;height:48px;border-radius:var(--r-s);object-fit:contain;background:var(--raise)}
+.pick span:last-child{display:grid;min-width:0}
+.pick small{color:var(--muted);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
