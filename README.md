@@ -10,6 +10,10 @@ It is a small web app that sits next to InvenTree and talks to its API. Nothing 
 
 `python scripts/demo_server.py` serves the real pages with sample data (no InvenTree, DigiKey or PIN needed; nothing is saved), at http://127.0.0.1:8800. Handy for working on the design.
 
+## Rooms and places
+
+The **Places** tab lists your rooms, with the cabinets, drawers and bins inside each. When you say where bags are going, you pick the room first, then choose the cabinet, drawer and bin from what already exists (or type a new name to create it), so names stay consistent. A cabinet that is not in any room is listed under "Not in a room" with a button to move it into one, and any place page can add a cabinet, drawer or bin inside it.
+
 ## Cabinet labels and what is inside
 
 A cabinet, drawer or bin label looks different from an item label (black header band saying where it is, a framed edge, the name big) so the two are never confused. Its QR is a link to the app: scan it with the phone's own camera, or with the scanner here, and you see everything stored in it and in the places below it, with a breadcrumb, quantities and your notes. Scanning in the app also makes it the current bin. A part's location is a link to the same page. Set `INVSCAN_URL` before running `scripts/install_labels.py`; labels printed earlier still scan in the app.

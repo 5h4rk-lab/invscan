@@ -55,7 +55,7 @@ function qtySheet(id, name, val, after) {
   $("#sheetForm").querySelectorAll("[data-d]").forEach(b => b.onclick = () => { i.value = Math.max(0, (+i.value || 0) + +b.dataset.d); });
   i.select();
 }
-function refresh() { state.view === "loc" ? loadLoc(state.locId) : state.view === "find" ? runFind() : state.view === "home" ? loadHome() : state.view === "part" ? loadPart(state.partId) : state.view === "cat" ? loadCat(state.catId) : 0; }
+function refresh() { state.view === "places" ? loadPlaces() : state.view === "loc" ? loadLoc(state.locId) : state.view === "find" ? runFind() : state.view === "home" ? loadHome() : state.view === "part" ? loadPart(state.partId) : state.view === "cat" ? loadCat(state.catId) : 0; }
 document.addEventListener("click", e => {
   const b = e.target.closest("[data-qty]"); if (!b) return;
   qtySheet(+b.dataset.id, b.dataset.name, b.dataset.val, b.dataset.after ? r => { b.textContent = r.qty; b.dataset.val = r.qty; } : null);
@@ -223,43 +223,108 @@ function renderBin() {
   const pb = b.querySelector("[data-print]"); if (pb) pb.onclick = () => printSheet("stocklocation", [state.bin.id], state.bin.path);
 }
 function setBin(b) { state.bin = b; localStorage.bin = JSON.stringify(b); renderBin(); }
-const BIN_FIELDS = [["room", "Room number", "204"], ["cabinet", "Cabinet or shelf", "Cabinet A"], ["drawer", "Drawer", "Drawer 3"], ["bin", "Bin or box", "Bin 2"]];
+/* ---------- places: rooms are the top level; cabinets, drawers and bins sit inside ---------- */
+const isRoom = n => /^room\b/i.test(n || "");
+const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true });
+const kidsOf = id => (state.places || []).filter(p => (p.parent ?? null) === id);
+const roomsOf = all => all.filter(p => !p.parent && isRoom(p.name)).sort(byName);
+async function loadPlacesData() { try { state.places = await api("/api/places"); } catch { state.places = state.places || []; } return state.places; }
+function roomPicker(rooms, current, { none = true } = {}) {
+  const cur = rooms.some(r => r.name === current) ? current : (rooms[0]?.name ?? "__new");
+  return `<div class="roomsec"><label>Room<select class="field" name="roomsel">${rooms.map(r => `<option value="${esc(r.name)}" ${r.name === cur ? "selected" : ""}>${esc(r.name)}</option>`).join("")}<option value="__new" ${cur === "__new" ? "selected" : ""}>New room...</option>${none ? '<option value="__none">No room</option>' : ""}</select></label>
+    <input class="field" name="roomnew" placeholder="Room number, like 204" autocomplete="off" ${cur === "__new" ? "" : "hidden"}></div>`;
+}
+function wireRoomPicker(onChange) {
+  const sel = $("#sheetForm [name=roomsel]"), nw = $("#sheetForm [name=roomnew]");
+  sel.onchange = () => { nw.hidden = sel.value !== "__new"; if (!nw.hidden) nw.focus(); onChange?.(); };
+  nw.oninput = () => onChange?.();
+}
+const readRoom = f => { const v = f.get("roomsel"); return v === "__new" ? (f.get("roomnew") || "").trim() : v === "__none" ? "" : (v || ""); };
 function binBody(f) {
   const path = (f.get("path") || "").trim();
   if (path) return { path };
-  const b = {}; BIN_FIELDS.forEach(([k]) => { b[k] = (f.get(k) || "").trim(); });
-  return Object.values(b).some(Boolean) ? b : null;
+  if (f.get("roomsel") === "__new" && !readRoom(f)) { toast("Type the room number, or choose No room"); return null; }
+  const b = { room: readRoom(f), cabinet: (f.get("cabinet") || "").trim(), drawer: (f.get("drawer") || "").trim(), bin: (f.get("bin") || "").trim() };
+  if (!Object.values(b).some(Boolean)) { toast("Choose a room or fill in the place"); return null; }
+  return b;
 }
 const hasRoom = p => (p || "").split("/").some(s => s.trim().toLowerCase().startsWith("room"));
-function binSheet() {
-  const last = JSON.parse(localStorage.binParts || "{}");
+async function binSheet() {
+  const all = await loadPlacesData(), rooms = roomsOf(all), last = JSON.parse(localStorage.binParts || "{}");
   openSheet(`<h3>Where are bags going?</h3>
-   <p class="muted sm">Point the camera at a bin label, or fill in the place. Anything new is created, and you can print its label.</p>
-   <div class="roomsec"><label>Room number<input class="field" name="room" inputmode="text" placeholder="204" value="${esc(last.room || "")}" autocomplete="off"></label>
-    <span class="sm muted">Typing 204 saves it as Room 204 and prints it in a highlighted block on the label.</span></div>
-   <label>Cabinet or shelf<input class="field" name="cabinet" placeholder="Cabinet A" value="${esc(last.cabinet || "")}" autocomplete="off"></label>
-   <div class="grid2"><label>Drawer<input class="field" name="drawer" placeholder="Drawer 3" autocomplete="off"></label><label>Bin or box<input class="field" name="bin" placeholder="Bin 2" autocomplete="off"></label></div>
+   <p class="muted sm">Point the camera at a bin label, or choose the place. Pick what is already there, or type a new name and it is created.</p>
+   ${roomPicker(rooms, last.room)}
+   <label>Cabinet or shelf<input class="field" name="cabinet" list="dlCab" placeholder="Cabinet A" value="${esc(last.cabinet || "")}" autocomplete="off"></label>
+   <div class="grid2"><label>Drawer<input class="field" name="drawer" list="dlDr" placeholder="Drawer 3" autocomplete="off"></label><label>Bin or box<input class="field" name="bin" list="dlBin" placeholder="Bin 2" autocomplete="off"></label></div>
+   <datalist id="dlCab"></datalist><datalist id="dlDr"></datalist><datalist id="dlBin"></datalist>
    <details><summary class="sm muted" style="cursor:pointer">Type a full path instead</summary><input class="field mono" name="path" placeholder="Room 204 / Cabinet A / Drawer 3 / Bin 2" style="margin-top:8px"></details>
-   <button class="btn primary" type="submit">Use this bin</button>
-   <button class="btn" type="button" id="mkprint">Create bin and print its label</button>
+   <button class="btn primary" type="submit">Use this place</button>
+   <button class="btn" type="button" id="mkprint">Create it and print its label</button>
    <button class="btn" type="button" id="nobin">No bin label: I'll write a note instead</button>`,
     async f => { const body = binBody(f); if (body) { rememberBin(f); try { setBin(await api("/api/bin", body)); } catch (e) { toast(e.message); } } });
+  // suggestions: what already exists inside the chosen room, cabinet and drawer, so names are picked, not retyped
+  const lists = () => {
+    const f = new FormData($("#sheetForm")), rn = readRoom(f), pl = state.places || [];
+    const room = rn ? pl.find(p => !p.parent && p.name.toLowerCase() === rn.toLowerCase()) : null, root = rn ? (room ? room.id : -1) : null;
+    const kids = id => id === -1 ? [] : kidsOf(id).filter(p => id !== null || (!isRoom(p.name) && p.name !== "Unplaced"));
+    const named = (id, n) => kids(id).find(p => p.name.toLowerCase() === (n || "").trim().toLowerCase());
+    const cab = named(root, f.get("cabinet")), dr = cab ? named(cab.id, f.get("drawer")) : null;
+    const opts = a => a.sort(byName).map(p => `<option value="${esc(p.name)}">`).join("");
+    $("#dlCab").innerHTML = opts(kids(root)); $("#dlDr").innerHTML = cab ? opts(kids(cab.id)) : ""; $("#dlBin").innerHTML = dr ? opts(kids(dr.id)) : "";
+  };
+  wireRoomPicker(lists); lists();
+  ["cabinet", "drawer"].forEach(n => $(`#sheetForm [name=${n}]`).addEventListener("input", lists));
   $("#nobin").onclick = () => { setBin(null); $("#sheet").close(); };
   $("#mkprint").onclick = async () => {
-    const f = new FormData($("#sheetForm")), body = binBody(f); if (!body) { toast("Fill in at least the bin or box"); return; }
+    const f = new FormData($("#sheetForm")), body = binBody(f); if (!body) return;
     rememberBin(f);
     try { const b = await api("/api/bin", body); setBin(b); $("#sheet").close(); setTimeout(() => printSheet("stocklocation", [b.id], b.path), 80); } catch (e) { toast(e.message); }
   };
 }
-function rememberBin(f) { localStorage.binParts = JSON.stringify({ room: (f.get("room") || "").trim(), cabinet: (f.get("cabinet") || "").trim() }); }
-function roomSheet() {
-  const last = JSON.parse(localStorage.binParts || "{}");
-  openSheet(`<h3>Add a room</h3>
+function rememberBin(f) { localStorage.binParts = JSON.stringify({ room: readRoom(f), cabinet: (f.get("cabinet") || "").trim() }); }
+async function roomSheet() {
+  const rooms = roomsOf(await loadPlacesData()), last = JSON.parse(localStorage.binParts || "{}");
+  openSheet(`<h3>Put it in a room</h3>
    <p class="muted sm">${tag(state.bin.path)}</p>
    <p class="sm">The top level of this place and everything inside it moves into the room. Other bins in the same cabinet get the room too.</p>
-   <label>Room number<input class="field" name="room" placeholder="204" value="${esc(last.room || "")}" required autofocus autocomplete="off"></label>
+   ${roomPicker(rooms, last.room, { none: false })}
    <button class="btn primary" type="submit">Put in this room</button>`,
-    async f => { try { const r = await api(`/api/bin/${state.bin.id}/room`, { room: f.get("room") }); setBin(r); toast("Now in " + r.path); } catch (e) { toast(e.message); } });
+    async f => { const room = readRoom(f); if (!room) { toast("Choose a room"); return; } try { const r = await api(`/api/bin/${state.bin.id}/room`, { room }); setBin(r); toast("Now in " + r.path); } catch (e) { toast(e.message); } });
+  wireRoomPicker();
+}
+function newRoomSheet() {
+  openSheet(`<h3>New room</h3><label>Room number or name<input class="field" name="room" placeholder="204" required autofocus autocomplete="off"></label>
+    <button class="btn primary" type="submit">Add room</button>`,
+    async f => { try { const r = await api("/api/bin", { room: f.get("room") }); toast("Added " + r.path); loadPlaces(); } catch (e) { toast(e.message); } });
+}
+async function moveToRoomSheet(id, name, after) {
+  const rooms = roomsOf(await loadPlacesData());
+  openSheet(`<h3>Move ${esc(name)} into a room</h3><p class="sm muted">${esc(name)} and everything inside it moves into the room you choose.</p>
+    ${roomPicker(rooms, "", { none: false })}<button class="btn primary" type="submit">Move</button>`,
+    async f => { const room = readRoom(f); if (!room) { toast("Choose a room"); return; } try { await api(`/api/bin/${id}/room`, { room }); toast("Moved into " + room); after(); } catch (e) { toast(e.message); } });
+  wireRoomPicker();
+}
+function addInsideSheet(d) {
+  openSheet(`<h3>Add inside ${esc(d.name)}</h3><label>Name<input class="field" name="name" placeholder="${isRoom(d.name) ? "Cabinet A" : "Drawer 4"}" required autofocus autocomplete="off"></label>
+    <button class="btn primary" type="submit">Add</button>`,
+    async f => { const n = f.get("name").trim().replace(/\s*\/\s*/g, "-"); try { await api("/api/bin", { path: d.path + " / " + n }); toast("Added " + n); loadLoc(d.id); } catch (e) { toast(e.message); } });
+}
+const DOOR = '<svg viewBox="0 0 24 24"><path d="M5 21V4.5A1.5 1.5 0 016.5 3h11A1.5 1.5 0 0119 4.5V21M3 21h18"/><circle cx="15" cy="12.5" r=".8" fill="currentColor"/></svg>';
+async function loadPlaces() {
+  const box = $("#placesBody");
+  box.innerHTML = `<div class="findhead"><h1>Places</h1></div><div class="tiles">${'<div class="ctile"><div class="sk" style="width:45%;height:34px"></div><div class="sk" style="width:70%;margin-top:14px"></div></div>'.repeat(3)}</div>`;
+  const all = await loadPlacesData();
+  const top = all.filter(p => !p.parent && p.name !== "Unplaced"), rooms = top.filter(p => isRoom(p.name)).sort(byName), loose = top.filter(p => !isRoom(p.name)).sort(byName);
+  const sub = id => kidsOf(id).sort(byName).map(k => k.name);
+  const tile = p => `<a class="ctile" href="#loc/${p.id}"><span class="stack"><i class="glyph">${DOOR}</i></span><span class="n">${esc(p.items)}</span><b>${esc(p.name)}</b><small>${esc(sub(p.id).slice(0, 3).join(", ") || "Nothing inside yet")}${sub(p.id).length > 3 ? ", more" : ""}</small></a>`;
+  box.innerHTML = `<div class="findhead"><h1>Places</h1><span class="muted sm">${rooms.length} ${rooms.length === 1 ? "room" : "rooms"}${loose.length ? `, ${loose.length} not in a room` : ""}</span></div>
+    <p class="muted sm" style="margin-bottom:12px">Rooms, then the cabinets, drawers and bins inside them. Open one to see everything stored there.</p>
+    <div class="tiles">${rooms.map(tile).join("")}<button class="ctile add" type="button" id="newRoom"><span class="plus">+</span><b>New room</b><small>Keep track of another room</small></button></div>
+    ${loose.length ? `<h2>Not in a room <small>${loose.length}</small></h2><p class="muted sm" style="margin:-4px 0 10px">Move each into the room it belongs to, so its label and lists say where it is.</p>
+      <div class="list">${loose.map(p => `<div class="row"><div class="body"><div class="name"><a class="nm" href="#loc/${p.id}">${esc(p.name)}</a></div><div class="desc">${esc(p.items)} stock ${p.items === 1 ? "line" : "lines"}</div></div><button class="btn sm" type="button" data-mv="${p.id}" data-n="${esc(p.name)}">Move into a room</button></div>`).join("")}</div>` : ""}
+    ${!all.length ? `<div class="list"><div class="empty-state">No places yet. Add a room, or scan a bin label.</div></div>` : ""}`;
+  $("#newRoom").onclick = newRoomSheet;
+  box.querySelectorAll("[data-mv]").forEach(b => b.onclick = () => moveToRoomSheet(+b.dataset.mv, b.dataset.n, loadPlaces));
 }
 
 /* ---------- scanning ---------- */
@@ -856,6 +921,7 @@ async function loadLoc(id) {
       <div class="crumbs">${crumbs}</div><h1 class="locname">${esc(d.name)}</h1>
       <div class="facts"><div><small>Parts here</small><b>${n}</b></div><div><small>Stock lines</small><b>${d.lines}</b></div><div><small>Places inside</small><b>${d.children.length}</b></div></div>
       <div class="actions2"><button class="btn primary" id="useBin">Put bags here</button><button class="btn" id="printLoc">Print label</button></div>
+      <div class="linkrow"><button class="btn quiet sm" id="addIn">Add a place inside</button>${!d.ancestors.length && !isRoom(d.name) ? '<button class="btn quiet sm" id="mvRoom">Move into a room</button>' : ""}</div>
       ${d.children.length ? `<h2>Inside <small>${d.children.length}</small></h2><div class="tiles">${d.children.map(c => `<a class="ctile" href="#loc/${c.id}"><span class="stack"><i class="glyph">${esc(c.name.slice(0, 1))}</i></span><span class="n">${esc(c.items)}</span><b>${esc(c.name)}</b><small>${c.items ? `${esc(c.items)} stock ${c.items === 1 ? "line" : "lines"}` : "Empty"}</small></a>`).join("")}</div>` : ""}
       <h2>Parts here <small>${n}</small></h2>
       ${n ? `<div class="list">${d.parts.map(p => `<a class="row frow" href="#part/${p.part_id}" data-peek="${p.part_id}">${img(p.thumbnail, p.name)}<div class="body"><div class="name">${esc(p.name)}</div>${p.description ? `<div class="desc">${esc(p.description)}</div>` : ""}
@@ -865,6 +931,8 @@ async function loadLoc(id) {
     $("#back").onclick = goBack;
     $("#useBin").onclick = () => { setBin({ id: d.id, path: d.path }); location.hash = "#scan"; toast("Putting bags in " + d.name); };
     $("#printLoc").onclick = () => printSheet("stocklocation", [d.id], d.path);
+    $("#addIn").onclick = () => addInsideSheet(d);
+    const mv = $("#mvRoom"); if (mv) mv.onclick = () => moveToRoomSheet(d.id, d.name, () => loadLoc(d.id));
   } catch (e) { box.innerHTML = `<button class="back" id="back">Back</button><div class="card">Could not load this place: ${esc(e.message)}</div>`; $("#back").onclick = goBack; }
 }
 
@@ -874,14 +942,14 @@ function route() {
   if (h.startsWith("part/") && +h.slice(5)) { v = "part"; arg = +h.slice(5); }
   else if (h.startsWith("cat/") && +h.slice(4)) { v = "cat"; arg = +h.slice(4); }
   else if (h.startsWith("loc/") && +h.slice(4)) { v = "loc"; arg = +h.slice(4); }
-  else if (["home", "scan", "find"].includes(h)) v = h;
+  else if (["home", "scan", "find", "places"].includes(h)) v = h;
   const key = v + ":" + (arg ?? ""); if (key === state.key) return;
   state.key = key; state.view = v; state.partId = arg; state.catId = arg; state.locId = arg;
   if (v === "cat" && state.cat.id !== arg) state.cat = { id: arg, q: "", sort: "relevance", f: {} };
-  for (const n of ["home", "scan", "find", "part", "cat", "loc"]) {
+  for (const n of ["home", "scan", "find", "places", "part", "cat", "loc"]) {
     const s = $("#v-" + n); s.hidden = n !== v; if (n === v) { s.classList.remove("in"); void s.offsetWidth; s.classList.add("in"); }
   }
-  document.querySelectorAll(".tabs a").forEach(a => a.dataset.v === (v === "cat" || v === "loc" ? "find" : v) ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"));
+  document.querySelectorAll(".tabs a").forEach(a => a.dataset.v === (v === "cat" ? "find" : v === "loc" ? "places" : v) ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"));
   v === "scan" ? startCam() : stopCam();
   document.body.classList.toggle("has-tree", v === "find" || v === "cat");
   if (v === "find" || v === "cat") (state.cats.length ? Promise.resolve() : loadCats()).then(renderTrees).catch(() => {});
@@ -890,6 +958,7 @@ function route() {
   if (v === "find") { runFind(); $("#q").focus({ preventScroll: true }); }
   if (v === "part") loadPart(arg);
   if (v === "loc") loadLoc(arg);
+  if (v === "places") loadPlaces();
   if (v === "cat") loadCat(arg);
   window.scrollTo(0, 0);
 }

@@ -225,6 +225,13 @@ def home():
     return out
 
 
+@app.get("/api/places", dependencies=[Depends(auth)])
+def places():
+    """Every place (room, cabinet, drawer, bin) with how many stock lines it holds, itself and below."""
+    return [{"id": l["pk"], "name": l["name"], "parent": l["parent"], "path": l["pathstring"], "items": l.get("items") or 0}
+            for l in inv().list("stock/location/", limit=1000)]
+
+
 @app.get("/api/location/{pk}", dependencies=[Depends(auth)])
 def location(pk: int):
     """A place and everything stored in it (and below it): what a cabinet label's QR opens."""

@@ -28,10 +28,10 @@ BIN = "Room 127/Cabinet #3/Drawer 1"
 PARTS = {  # id: name, description, category id, kind (thumbnail), specs, stock [(path, qty, note)]
     1: ("MC9S08PA60AVLF", "IC MCU 8BIT 60KB FLASH 48LQFP", 3, "ic", [("Core Processor", "S08"), ("Program Memory Size", "60KB"), ("Package", "48-LQFP")], [(BIN, 5, "")]),
     2: ("S9S12G192F0VLH", "IC MCU 16BIT 192KB FLASH 64LQFP", 3, "ic", [("Core Processor", "S12Z"), ("Program Memory Size", "192KB"), ("Package", "64-LQFP")], [("Room 127/Cabinet #3/Drawer 2", 5, "")]),
-    3: ("MSP430F2012TN", "IC MCU 16BIT 2KB FLASH 14DIP", 3, "ic", [("Core Processor", "MSP430"), ("Program Memory Size", "2KB"), ("Package", "14-DIP")], [("Room 127/Cabinet #2/Drawer 4", 10, "")]),
+    3: ("MSP430F2012TN", "IC MCU 16BIT 2KB FLASH 14DIP", 3, "ic", [("Core Processor", "MSP430"), ("Program Memory Size", "2KB"), ("Package", "14-DIP")], [("Cabinet A/Drawer 3/Bin 2", 10, "")]),
     4: ("ERA-8AHD150V", "RES SMD 15 OHM 0.5% 1/4W 1206", 5, "res", [("Resistance", "15 Ohms"), ("Tolerance", "±0.5%"), ("Power (Watts)", "0.25W, 1/4W")], [(BIN, 25, "")]),
     5: ("RT1206DRE0715RL", "RES SMD 15 OHM 0.5% 1/4W 1206", 5, "res", [("Resistance", "15 Ohms"), ("Tolerance", "±0.5%"), ("Power (Watts)", "0.25W, 1/4W")], [("Room 127/Cabinet #2/Drawer 1", 100, "")]),
-    6: ("RL81C221MDN1KX", "CAP ALUM POLY 220UF 20% 16V SMD", 7, "cap", [("Capacitance", "220 µF"), ("Voltage - Rated", "16V"), ("ESR (Equivalent Series Resistance)", "30mOhm")], [("Room 127/Cabinet #2/Drawer 3", 10, "")]),
+    6: ("RL81C221MDN1KX", "CAP ALUM POLY 220UF 20% 16V SMD", 7, "cap", [("Capacitance", "220 µF"), ("Voltage - Rated", "16V"), ("ESR (Equivalent Series Resistance)", "30mOhm")], [("Room 204/Shelf 1/Box A", 10, "")]),
     7: ("3SMAJ5939B-TP", "DIODE ZENER 39V 1.5W DO214AC", 9, "diode", [("Voltage - Zener (Nom) (Vz)", "39V"), ("Power - Max", "1.5W")], [(BIN, 15, "")]),
     8: ("LRS-350", "Mean Well LRS-350 power supply", 12, "psu", [], []),
     9: ("LRS-350 24V", "24V 14.6A 350W power supply", 12, "psu", [("Voltage - Output 1", "24V"), ("Current - Output (Max)", "14.6A"), ("Power (Watts)", "350W")], [("Room 127/Cabinet #1/Shelf 2", 2, "")]),
@@ -154,6 +154,16 @@ def peek_category(pk: int):
     kids = [c for c in categories() if c["parent"] == pk and c["count"]]
     return {"id": pk, "name": me[1], "path": me[3], "count": sum(1 for v in PARTS.values() if under(v[2], pk)), "children": kids,
             "parts": [{"id": p, "name": v[0], "thumbnail": thumb(p), "total": total(p)} for p, v in PARTS.items() if under(v[2], pk) and p != 8][:8]}
+
+
+@app.get("/api/places")
+def places():
+    out = []
+    for i, p in LOCS.items():
+        segs = p.split("/")
+        out.append({"id": i, "name": segs[-1], "parent": LOC_ID.get("/".join(segs[:-1])), "path": p,
+                    "items": sum(1 for v in PARTS.values() for q in v[5] if q[0] == p or q[0].startswith(p + "/"))})
+    return out
 
 
 @app.get("/api/location/{pk}")

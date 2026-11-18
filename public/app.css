@@ -329,7 +329,7 @@ a.thumb-link,a.thumb-link *{text-decoration:none}
 }
 @media(max-width:420px){
   .hero-panel h1{font-size:25px;max-width:9em} .stats b{font-size:22px} .stats div,.stats a{padding:0 13px}
-  .tabs a{min-width:76px}
+  .tabs a{min-width:66px;padding-left:8px;padding-right:8px}
 }
 
 /* a part that needs a bin: the action sits inside its row, not in a separate strip */
@@ -376,3 +376,10 @@ mark{background:var(--gold-soft);color:inherit;border-radius:3px;padding:0 1px;b
 /* a place page; a place shown as a link */
 .locname{font-size:30px;margin:0 0 4px}
 a.tag.link{text-decoration:none;color:var(--ink2);transition:border-color .12s,background .12s} a.tag.link:hover{border-color:var(--blue);background:var(--blue-soft)}
+
+/* places */
+.ctile.add{border-style:dashed;background:transparent;box-shadow:none;cursor:pointer;text-align:left;font:inherit;color:var(--muted)}
+.ctile.add:hover{color:var(--ink);background:var(--blue-soft)}
+.ctile.add .plus{display:grid;place-items:center;width:38px;height:38px;border-radius:10px;border:1.5px dashed var(--line2);font:500 22px/1 var(--sans);color:var(--blue)}
+.glyph svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.roomsec select.field{font-weight:600}
