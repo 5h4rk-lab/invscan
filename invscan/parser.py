@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 GLYPHS = {"␝": "\x1d", "␞": "\x1e", "␄": "\x04"}
 _PRINTED = {"<GS>": "\x1d", "<RS>": "\x1e", "<EOT>": "\x04"}  # some decoders print control characters like this
 _FIELD = re.compile(r"^(\d{0,2}[A-Z])(.*)$", re.S)
-DK_PN = re.compile(r"^\d{1,6}-[A-Z0-9][A-Z0-9._/+%()\-]*-ND$", re.I)  # e.g. 296-19733-5-ND, 2521-IS32CG5317EVK_KIT-ND
+DK_PN = re.compile(r"^(?=[^-]*\d|.*-.*\d)[A-Z0-9][A-Z0-9._/+%()\-]{2,}-ND$", re.I)  # 296-19733-5-ND, 2521-IS32CG5317EVK_KIT-ND, P15BQCT-ND
 
 
 class ScanError(ValueError):

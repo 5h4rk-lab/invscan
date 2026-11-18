@@ -52,6 +52,10 @@ class DK:
     def lookup(self, mpn, sku=None, manufacturer=None):
         return self.by_query.get("lookup")
 
+    def details(self, pn):
+        self.detailed = getattr(self, "detailed", []) + [pn]
+        return self.by_query.get("details:" + pn) or (self.by_query.get("lookup") if "details:*" in self.by_query else None)
+
 
 def prod(mpn, maker="NXP USA Inc.", pn=None):
     return {"ManufacturerProductNumber": mpn, "Manufacturer": {"Name": maker}, "Description": {"ProductDescription": "IC MCU"},
@@ -68,7 +72,7 @@ def test_find_parts_ranks_by_closeness_and_stops_at_an_exact_match():
 
 
 def test_digikey_part_number_is_looked_up_directly():
-    dk = DK({"lookup": prod("3SMAJ5939B-TP", "Micro Commercial Co", "3SMAJ5939B-TPMSCT-ND")})
+    dk = DK({"details:3SMAJ5939B-TPMSCT-ND": prod("3SMAJ5939B-TP", "Micro Commercial Co", "3SMAJ5939B-TPMSCT-ND")})
     r = find_parts(dk, ["x"], "3SMAJ5939B-TPMSCT-ND")
     assert [c["mpn"] for c in r] == ["3SMAJ5939B-TP"] and dk.asked == []
 
@@ -115,7 +119,7 @@ def test_ordinary_words_and_part_numbers_are_not_digikey_numbers():
 def test_every_digikey_number_on_the_photo_is_tried_and_the_rest_skipped():
     e = extract("PN 296-19733-5-ND\nPN 1528-4939-NO\n(30P) TYPE MC9S08PA60AVLF")
     assert e.dk_pns == ["296-19733-5-ND", "1528-4939-ND"] and e.queries[:2] == e.dk_pns
-    dk = DK({"lookup": prod("4939", "Adafruit Industries LLC", "1528-4939-ND")})
+    dk = DK({"details:1528-4939-ND": prod("4939", "Adafruit Industries LLC", "1528-4939-ND")})
     r = find_parts(dk, e.queries, e.dk_pns)
     assert [c["dk_pn"] for c in r] == ["1528-4939-ND"] and dk.asked == []  # no keyword guessing once a DigiKey number resolved
 
@@ -123,3 +127,42 @@ def test_every_digikey_number_on_the_photo_is_tried_and_the_rest_skipped():
 def test_garbled_copies_of_a_digikey_number_are_not_searched_as_guesses():
     assert extract("SHIP 29-0CT\nPN: 296-19733-5-NO\n").queries == ["296-19733-5-ND"]
     assert extract("29-0CT\n29-0CT\n").queries == []
+
+
+# OCR of a real old-style DigiKey label (condensed font): P/N P15BQCT-ND, MFG P/N ERA-8AHD150V, dated 29-OCT-2014
+OLD = "29-0CT-2014 13:06 DIGI-KEY 809 34\n7x: P19B0CT-AD\nP/N\nMFG,\nERA-BAHD15@V\nDESC: RR\nUHM\n29-0CT\nERA-BAHD 150v\nERA-BAHD158Y\n"
+
+
+def test_letter_led_digikey_number_is_recognised():
+    from invscan.ocr import digikey_numbers
+    assert digikey_numbers("P/N: P15BQCT-ND") == ["P15BQCT-ND"]
+    assert digikey_numbers("PN 3SMAJ5939B-TPMSCT-ND") == ["3SMAJ5939B-TPMSCT-ND"]
+    assert digikey_numbers("STANDARD-ND FPXND") == []
+
+
+def test_damaged_digikey_number_becomes_a_guess_and_the_date_is_ignored():
+    e = extract(OLD)
+    assert "P19B0CT-ND" in e.dk_guesses and e.dk_pns == []
+    assert "29-0CT" not in e.generic and "ERA-BAHD150V" in e.generic  # "ERA-BAHD 150v" is joined, @ is read as 0
+
+
+def test_fuzz_tries_single_fixes_before_pairs_and_fixes_the_real_case():
+    from invscan.ocr import fuzz
+    v = fuzz("ERA-BAHD150V", 8)
+    assert v[0] == "ERA-8AHD150V" and "ERA-BAHD150V" not in v and all(len(x) == 12 for x in v)
+    assert "P15BQCT" in fuzz("P19B0CT", 40)  # 9->5 and 0->Q together
+    assert len(fuzz("ZZZ", 5)) == 5 and fuzz("LM", 5) == []
+
+
+def test_old_label_finds_the_resistor_and_keeps_the_packaging_printed_on_it():
+    resistor = prod("ERA-8AHD150V", "Panasonic Industry", "P15BQTR-ND")
+    resistor["ProductVariations"].append({"DigiKeyProductNumber": "P15BQCT-ND"})
+    dk = DK({"ERA-8AHD150V": [resistor], "details:P15BQCT-ND": resistor})
+    e = extract(OLD)
+    r = find_parts(dk, e.queries, e.dk_pns, min_score=0.55, guesses=e.dk_guesses, fuzz_targets=e.generic[:2])
+    assert [c["mpn"] for c in r] == ["ERA-8AHD150V"] and r[0]["dk_pn"] == "P15BQCT-ND"
+
+
+def test_digikey_header_text_is_not_a_part_number():
+    e = extract("29-OCT-2014 13:06 DIGI-KEY 800 344-4539\nWWW.DIGIKEY.COM\nDIGI-KEY899\n")
+    assert e.generic == [] and e.queries == []

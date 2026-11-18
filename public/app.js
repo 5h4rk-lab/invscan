@@ -404,7 +404,9 @@ $("#photo").onchange = async e => {
 };
 
 /* ---------- labels with no readable square code: read the text, search DigiKey ---------- */
-const OCR_DIR = new URL("/static/vendor/tess", location.href).href, OCR_ANGLES = [0, -12, 12, -6, 6];  // glossy bags are rarely held square
+const OCR_DIR = new URL("/static/vendor/tess", location.href).href;
+// [angle, enlarge, contrast]: small print on a label photo reads best enlarged and thresholded; glossy bags are rarely held square
+const OCR_PASSES = [[0, 2, "thresh"], [0, 1, "none"], [-12, 1, "norm"], [12, 1, "norm"], [0, 2, "norm"], [-6, 1, "none"], [6, 1, "none"]];
 let ocrWorker = null;
 async function ocrLoad() {
   if (ocrWorker) return ocrWorker;
@@ -413,11 +415,22 @@ async function ocrLoad() {
   await w.setParameters({ tessedit_pageseg_mode: "11", preserve_interword_spaces: "1" });  // 11: scattered text, which is what a label is
   return (ocrWorker = w);
 }
-function rotated(bm, deg) {
-  const k = Math.min(1, 2400 / Math.max(bm.width, bm.height)), w = bm.width * k, h = bm.height * k, r = deg * Math.PI / 180;
+function rotated(bm, deg, enlarge = 1, prep = "none") {
+  const k = Math.min(enlarge, 4000 / Math.max(bm.width, bm.height)), w = bm.width * k, h = bm.height * k, r = deg * Math.PI / 180;
   const W = Math.round(Math.abs(w * Math.cos(r)) + Math.abs(h * Math.sin(r))), H = Math.round(Math.abs(w * Math.sin(r)) + Math.abs(h * Math.cos(r)));
-  const c = document.createElement("canvas"); c.width = W; c.height = H; const x = c.getContext("2d");
-  x.fillStyle = "#fff"; x.fillRect(0, 0, W, H); x.translate(W / 2, H / 2); x.rotate(r); x.drawImage(bm, -w / 2, -h / 2, w, h);
+  const c = document.createElement("canvas"); c.width = W; c.height = H; const x = c.getContext("2d", { willReadFrequently: true });
+  x.fillStyle = "#fff"; x.fillRect(0, 0, W, H); x.translate(W / 2, H / 2); x.rotate(r); x.drawImage(bm, -w / 2, -h / 2, w, h); x.setTransform(1, 0, 0, 1, 0, 0);
+  if (prep !== "none") {  // stretch the contrast (ignoring the extreme 2%), and for "thresh" make it pure black and white
+    const d = x.getImageData(0, 0, W, H), a = d.data, g = new Uint8Array(W * H), hist = new Uint32Array(256);
+    for (let i = 0, j = 0; i < a.length; i += 4, j++) { g[j] = (a[i] * 299 + a[i + 1] * 587 + a[i + 2] * 114) / 1000; hist[g[j]]++; }
+    let s2 = 0, lo = 0, hi = 255; while (lo < 255 && (s2 += hist[lo]) < g.length * 0.02) lo++; s2 = 0; while (hi > 0 && (s2 += hist[hi]) < g.length * 0.02) hi--;
+    for (let i = 0, j = 0; i < a.length; i += 4, j++) {
+      let v = Math.max(0, Math.min(255, (g[j] - lo) * 255 / Math.max(1, hi - lo)));
+      if (prep === "thresh") v = v > 120 ? 255 : 0;
+      a[i] = a[i + 1] = a[i + 2] = v;
+    }
+    x.putImageData(d, 0, 0);
+  }
   return c;
 }
 async function ocrFlow(file) {
@@ -427,12 +440,14 @@ async function ocrFlow(file) {
   const parts = [];
   try {
     const w = await ocrLoad(), bm = await createImageBitmap(file);
-    for (let i = 0; i < OCR_ANGLES.length && !stop; i++) {
-      step(`Reading the label, pass ${i + 1} of ${OCR_ANGLES.length}...`, i / (OCR_ANGLES.length + 1));
-      parts.push((await w.recognize(rotated(bm, OCR_ANGLES[i]))).data.text);
+    for (let i = 0; i < OCR_PASSES.length && !stop; i++) {
+      step(`Reading the label, pass ${i + 1} of up to ${OCR_PASSES.length}...`, i / (OCR_PASSES.length + 1));
+      const [deg, big, prep] = OCR_PASSES[i];
+      parts.push((await w.recognize(rotated(bm, deg, big, prep))).data.text);
+      if (/\b[A-Z0-9][A-Z0-9._\/+%()-]{2,}-ND\b/i.test(parts[parts.length - 1])) break;  // a clean DigiKey number: no need to keep reading
     }
     if (stop) return;
-    step("Searching DigiKey...", OCR_ANGLES.length / (OCR_ANGLES.length + 1));
+    step("Searching DigiKey...", OCR_PASSES.length / (OCR_PASSES.length + 1));
     const text = parts.join("\n"), info = await api("/api/ocr", { text });
     if (stop) return;
     $("#sheet").close(); await new Promise(r => setTimeout(r, 40));  // let the close event pass before the next sheet opens
@@ -448,7 +463,7 @@ function ocrPicks(info) {
 function ocrSheet(info, text) {
   openSheet(`<h3>Which part is this?</h3>
     <p class="muted sm">This is what the photo seems to say. Check the part before you add it; text on a bag is easy to misread.</p>
-    <div class="photo-pick"><input class="field mono" id="ocrQ" value="${esc(info.results[0]?.score >= 0.97 ? info.results[0].mpn : info.queries[0] || "")}" placeholder="Part number" autocapitalize="characters" autocomplete="off" spellcheck="false" style="flex:1"><button class="btn sm" type="button" id="ocrGo">Search DigiKey</button></div>
+    <div class="photo-pick"><input class="field mono" id="ocrQ" value="${esc(info.results[0]?.mpn || info.queries[0] || "")}" placeholder="Part number" autocapitalize="characters" autocomplete="off" spellcheck="false" style="flex:1"><button class="btn sm" type="button" id="ocrGo">Search DigiKey</button></div>
     <div class="picks" id="ocrList">${ocrPicks(info)}</div>
     <label>Quantity<input class="field" name="qty" type="number" inputmode="numeric" min="1" required value="${esc(info.qty || "")}" placeholder="1"></label>
     <div class="grid2"><label>Lot code (optional)<input class="field" name="lot" value="${esc(info.lot || "")}" autocomplete="off"></label><label>Date code (optional)<input class="field" name="dc" value="${esc(info.date_code || "")}" autocomplete="off"></label></div>
