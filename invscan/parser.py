@@ -29,7 +29,28 @@ class Scan:
     load_id: str = ""
     lot_code: str = ""
     date_code: str = ""
+    order_code: str = ""  # 1P on NXP labels: the 12-digit order code (12NC), not the part number
+    puid: str = ""  # 33T on NXP labels: unique to one bag
     fields: dict[str, str] = field(default_factory=dict)
+
+
+def _is_nxp(fields: dict[str, str]) -> bool:
+    """NXP factory bags: 33T (bag id) is theirs alone; or a 12-digit order code in 1P next to a plain 30P type.
+    DigiKey labels put a -ND part number in 30P and carry 12Z/13Z/1K, so they never match."""
+    if "33T" in fields:
+        return True
+    return bool(re.fullmatch(r"\d{12}", fields.get("1P", "").replace(" ", "")) and fields.get("30P")
+                and not DK_PN.match(fields["30P"]) and not any(k in fields for k in ("12Z", "13Z", "1K", "10K", "14K")))
+
+
+def _nxp_scan(fields: dict[str, str]) -> Scan:
+    mpn = fields.get("30P", "")
+    if not mpn:
+        raise ScanError("no part type (30P) in NXP label")
+    q = fields.get("Q", "")
+    return Scan(mpn=mpn, vendor="nxp", manufacturer="NXP", qty=int(q) if q.isdigit() else None,
+                order_code=fields.get("1P", "").replace(" ", ""), puid=fields.get("33T", ""),
+                lot_code=fields.get("1T", ""), date_code=fields.get("9D", ""), fields=fields)
 
 
 def parse_scan(raw: str) -> Scan:
@@ -58,6 +79,8 @@ def parse_scan(raw: str) -> Scan:
         raise ScanError("no fields found")
 
     mpn = fields.get("1P", "")
+    if _is_nxp(fields):  # the part number is the type (30P); 1P is NXP's own order code
+        return _nxp_scan(fields)
     vendor = "mouser" if ("14K" in fields or ("1V" in fields and not mpn)) else ("digikey" if ("12Z" in fields or "30P" in fields or "13Z" in fields) else "")
     if not mpn and vendor != "mouser":
         raise ScanError("no manufacturer part number (1P) in scan")

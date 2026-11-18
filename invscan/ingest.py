@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from .categories import digikey_path, ensure_category_path, misc_category
+from .digikey import _norm
 from .enrich import add_supplier_part, enrich_part, ensure_manufacturer_part
 from .locations import ensure_path
 from .notes import set_note
@@ -27,7 +28,9 @@ def batch_key(scan: Scan) -> str:
 
     DigiKey: (sales order, load id). Newer labels print a placeholder load id (all 9s) shared by every bag in the
     order, so the DigiKey part/MID id (12Z) is added to keep bags of different parts apart.
-    Mouser: (invoice, line item, PO)."""
+    Mouser: (invoice, line item, PO). NXP: the bag's own id (33T)."""
+    if scan.vendor == "nxp":
+        return f"NXP-{scan.puid}" if scan.puid else ""
     if scan.vendor == "mouser":
         return f"MO-{scan.invoice}-{scan.line_item}-{scan.po}" if scan.invoice and scan.line_item else ""
     if not (scan.sales_order and scan.load_id):
@@ -57,9 +60,9 @@ def find_part(inv, scan: Scan, product: dict | None):
         if sp:
             return sp[0]["part"], sp[0]["pk"]
     mp = inv.list("company/part/manufacturer/", MPN=scan.mpn)
-    maker = (product["Manufacturer"]["Name"] if product else scan.manufacturer).lower()
+    maker = product["Manufacturer"]["Name"] if product else scan.manufacturer
     if maker:  # same MPN from a different maker is a different part
-        mp = [m for m in mp if (m.get("manufacturer_detail") or {}).get("name", "").lower() == maker
+        mp = [m for m in mp if _same_maker((m.get("manufacturer_detail") or {}).get("name", ""), maker)
               or str(m.get("manufacturer")) == str(_company_id(inv, maker))]
     if mp:
         return mp[0]["part"], None
@@ -68,6 +71,12 @@ def find_part(inv, scan: Scan, product: dict | None):
             if scan.mpn.lower() in (p["name"].lower(), (p.get("IPN") or "").lower()):
                 return p["pk"], None
     return None, None
+
+
+def _same_maker(a: str, b: str) -> bool:
+    """'NXP' and 'NXP USA Inc.' are one maker; 'Adafruit' and 'Adafruit Industries LLC' too."""
+    a, b = _norm(a), _norm(b)
+    return bool(a and b and (a in b or b in a))
 
 
 def _company_id(inv, name: str):
@@ -96,7 +105,7 @@ def ingest(inv, scan: Scan, location_id: int | None, qty: int | None = None, dk=
         if dup:
             return Result("duplicate", dup[0]["part"], dup[0]["pk"], message=f"already scanned as stock #{dup[0]['pk']}")
 
-    mouser_label = scan.vendor == "mouser"
+    mouser_label, nxp_label = scan.vendor == "mouser", scan.vendor == "nxp"
     product, from_mouser = None, False
     if mouser_label and mouser is not None and getattr(mouser, "enabled", False):
         product = mouser.lookup(scan.supplier_sku or "")  # Mouser's own details for its part number
@@ -105,7 +114,7 @@ def ingest(inv, scan: Scan, location_id: int | None, qty: int | None = None, dk=
             scan.mpn = product["ManufacturerProductNumber"]
     if product is None and dk:
         # a Mouser PN means nothing to DigiKey, but the manufacturer name on the label settles shared MPNs
-        product = dk.lookup(scan.mpn, None if mouser_label else scan.supplier_sku, scan.manufacturer or None)
+        product = dk.lookup(scan.mpn, None if mouser_label or nxp_label else scan.supplier_sku, scan.manufacturer or None)
     part_id, supplier_part = find_part(inv, scan, product)
     new_part = part_id is None
     name = scan.mpn
@@ -113,11 +122,11 @@ def ingest(inv, scan: Scan, location_id: int | None, qty: int | None = None, dk=
     if new_part and maker and any(p["name"].lower() == scan.mpn.lower() for p in inv.list("part/", search=scan.mpn)):
         name = f"{scan.mpn} ({maker})"  # same MPN, different maker
     if new_part:
-        origin = "Mouser" if mouser_label else "DigiKey"
+        origin = "Mouser" if mouser_label else "NXP" if nxp_label else "DigiKey"
         part_id = inv.post(
             "part/",
             name=name, IPN=name,
-            description=description or (f"Imported from {origin} scan" if (scan.sales_order or mouser_label) else "Added by hand"),
+            description=description or (f"Imported from {origin} scan" if (scan.sales_order or mouser_label or nxp_label) else "Added by hand"),
             category=category or ensure_category_path(inv, digikey_path(product))
             or (misc_category(inv) if manual else unsorted_category(inv)), component=True, purchaseable=True,
         )["pk"]
@@ -125,12 +134,14 @@ def ingest(inv, scan: Scan, location_id: int | None, qty: int | None = None, dk=
     mp_id = None
     if product:
         res = enrich_part(inv, part_id, product, supplier="Mouser" if from_mouser else "Digi-Key",
-                          variations=not mouser_label or from_mouser)
+                          variations=not (mouser_label or nxp_label) or from_mouser)
         skus, mp_id = res["supplier_parts"], res["manufacturer_part"]
         if scan.supplier_sku in skus:
             supplier_part = skus[scan.supplier_sku]
-        elif len(skus) == 1 and not mouser_label:
+        elif len(skus) == 1 and not (mouser_label or nxp_label):
             supplier_part = next(iter(skus.values()))
+    if nxp_label and not mp_id:
+        mp_id = ensure_manufacturer_part(inv, part_id, scan.manufacturer, scan.mpn)
     if mouser_label and scan.supplier_sku:
         if not mp_id and scan.manufacturer:
             mp_id = ensure_manufacturer_part(inv, part_id, scan.manufacturer, scan.mpn)
@@ -145,6 +156,7 @@ def ingest(inv, scan: Scan, location_id: int | None, qty: int | None = None, dk=
         notes=set_note(" ".join(x for x in (
             f"Mouser PO {scan.po} invoice {scan.invoice} line {scan.line_item} origin {scan.country}" if mouser_label else "",
             f"DigiKey SO {scan.sales_order} invoice {scan.invoice} origin {scan.country}" if scan.sales_order and not mouser_label else "",
+            f"NXP order code {scan.order_code} bag {scan.puid}" if nxp_label else "",
             f"lot {scan.lot_code}" if scan.lot_code else "",
             f"date code {scan.date_code}" if scan.date_code else "",
             f"ref {scan.customer_ref}" if scan.customer_ref else "") if x), note),

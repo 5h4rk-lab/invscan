@@ -319,7 +319,7 @@ function handleCode(text, extra = {}) {
   const isBag = /^\[\)>|\x1d|\u241d/.test(text);
   if (!isBag || state.bin) return sendBag(text, null, extra);
   // bag without a bin: ask where it is going so it can be found later
-  const mpn = (text.match(/1P([^\x1d␝]+)/) || [])[1] || "this bag";
+  const mpn = (text.match(/33T/) ? (text.match(/30P([^\x1d␝]+)/) || [])[1] : (text.match(/1P([^\x1d␝]+)/) || [])[1]) || "this bag";  // NXP bags: 1P is an order code, 30P the part
   openSheet(`<h3>Where is it going?</h3>
     <p class="muted sm"><span class="mono">${esc(mpn)}</span> has no bin. Write where you put it and you can search for these words later.</p>
     <div id="haveSlot"></div>
