@@ -113,7 +113,9 @@ def browse(category: int | None = None, q: str = "", sort: str = ""):
 
 @app.get("/api/find")
 def find(q: str):
-    return [{**row(p), "where": where(p)} for p, v in PARTS.items() if q.lower() in (v[0] + " " + v[1]).lower() and p != 8]
+    words = q.lower().split()
+    hay = lambda p: (PARTS[p][0] + " " + PARTS[p][1] + " " + " ".join(n for _, _, n in PARTS[p][5])).lower()  # names, descriptions and location notes
+    return [{**row(p), "where": where(p)} for p in PARTS if p != 8 and all(w in hay(p) for w in words)]
 
 
 @app.get("/api/part/{pk}")

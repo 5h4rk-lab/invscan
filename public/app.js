@@ -96,9 +96,16 @@ function damagedSheet(prefill = "") {
       try { finishManual(await api("/api/part/new", body)); } catch (e) { toast(e.message); }
     });
 }
+const segHtml = kind => `<div class="seg" role="group" aria-label="What are you adding"><button type="button" data-seg="part" class="${kind === "part" ? "on" : ""}">Any part</button><button type="button" data-seg="supply" class="${kind === "supply" ? "on" : ""}">Power supply</button></div>`;
+function wireSeg(kind, current) {
+  document.querySelectorAll("#sheetForm [data-seg]").forEach(b => b.onclick = () => {
+    if (b.dataset.seg === kind) return; const v = current(); $("#sheet").close();
+    setTimeout(() => b.dataset.seg === "supply" ? supplySheet(v) : handSheet(v), 60);
+  });
+}
 async function handSheet(prefill = "") {
   try { await loadCats(); } catch { /* the category choice is optional */ }
-  openSheet(`<h3>Add a part by hand</h3>
+  openSheet(`<h3>Add a part</h3>${segHtml("part")}
    <p class="muted sm">For parts with no DigiKey label. Type a name or part number. A DigiKey number such as 296-19733-5-ND fills in the details for you.</p>
    <label>Part number or name<input class="field" name="name" value="${esc(prefill)}" placeholder="Blue relay module" required autocomplete="off"></label>
    <label>Description (optional)<input class="field" name="description" placeholder="5V 1-channel, from the bench drawer" autocomplete="off"></label>
@@ -107,8 +114,7 @@ async function handSheet(prefill = "") {
    <div class="photo-pick"><button class="btn sm" type="button" id="pickPhoto">Take or choose a photo</button><span id="photoName">So it shows up when you search</span></div>
    <input name="photo" id="photoIn" type="file" accept="image/*" capture="environment" hidden>
    ${state.bin ? `<div>${tag(state.bin.path)}</div>` : `<label>Where is it?<textarea class="field" name="note" required placeholder="Blue box under the desk, left side"></textarea></label>`}
-   <button class="btn primary" type="submit">Add part</button>
-   <button class="btn quiet" type="button" id="toSupply">It is a power supply</button>`,
+   <button class="btn primary" type="submit">Add part</button>`,
     async f => {
       const body = { name: f.get("name").trim(), description: (f.get("description") || "").trim(), qty: +f.get("qty"), category: +f.get("category") || null, location_id: state.bin?.id ?? null, note: (f.get("note") || "").trim() || null };
       let r;
@@ -122,12 +128,12 @@ async function handSheet(prefill = "") {
     });
   $("#pickPhoto").onclick = () => $("#photoIn").click();
   $("#photoIn").onchange = e => { $("#photoName").textContent = e.target.files[0] ? "Photo ready: " + e.target.files[0].name : "So it shows up when you search"; };
-  $("#toSupply").onclick = () => { const name = $("#sheetForm [name=name]").value; $("#sheet").close(); supplySheet(name); };
+  wireSeg("part", () => $("#sheetForm [name=name]").value);
 }
 async function supplySheet(prefill = "") {
   let info = { models: [], kinds: [] };
   try { info = await api("/api/supplies"); } catch { /* the form still works without suggestions */ }
-  openSheet(`<h3>Add a power supply</h3>
+  openSheet(`<h3>Add a part</h3>${segHtml("supply")}
    <p class="muted sm">One model can come in several configurations. Each voltage is kept as its own item under the model, with its own stock and bin.</p>
    <label>Model<input class="field mono" name="model" list="supModels" value="${esc(prefill)}" placeholder="LRS-350" required autocomplete="off"></label>
    <datalist id="supModels">${info.models.map(m => `<option value="${esc(m.name)}">`).join("")}</datalist>
@@ -162,6 +168,7 @@ async function supplySheet(prefill = "") {
     const m = info.models.find(x => x.name.toLowerCase() === $("#sheetForm [name=model]").value.trim().toLowerCase());
     $("#supHave").innerHTML = m ? `Already have: ${m.variants.length ? m.variants.map(v => `<a href="#part/${v.id}">${esc(v.name.slice(m.name.length).trim())}</a> (${esc(v.stock)})`).join(", ") : "no configurations yet"}` : "";
   };
+  wireSeg("supply", () => $("#sheetForm [name=model]").value);
   $("#sheetForm [name=model]").oninput = have; have();
   $("#supHave").onclick = e => { if (e.target.closest("a")) $("#sheet").close(); };
   $("#pickPhoto").onclick = () => $("#photoIn").click();
@@ -527,21 +534,75 @@ function placeSheet(id, name, note) {
 
 /* ---------- find ---------- */
 let ft;
-async function runFind() {
-  const q = $("#q").value.trim(), box = $("#res");
-  if (!q) { try { await loadCats(); renderTree(box); } catch (e) { box.innerHTML = `<div class="card">${esc(e.message)}</div>`; } return; }
-  box.innerHTML = `<div class="card"><div class="sk" style="width:50%"></div><div class="sk" style="width:80%;margin-top:10px"></div></div>`;
-  try {
-    const r = await api("/api/find?q=" + encodeURIComponent(q));
-    box.innerHTML = r.length ? r.map(p => `<div class="card" data-peek="${p.id}"><div class="head">${plink(p.id, img(p.thumbnail, p.name), "thumb-link")}<div class="body" style="flex:1;min-width:0"><div class="name">${plink(p.id, esc(p.name), "nm")}</div><div class="desc muted sm">${esc(p.description)}</div>${p.category ? `<div class="catline"><a href="#cat/${p.category_id}">${esc(p.category)}</a></div>` : ""}</div>
-      <div class="qty">${esc(p.total)}<small>in stock</small></div></div>
-      <div class="where">${p.where.length ? p.where.map(w => `<div class="w"><div>${tag(w.path, w.unplaced)}${qbtn(w.stock_id, p.name, w.qty)}</div>${w.note ? `<div class="note" style="margin:0">${esc(w.note)}</div>` : ""}<div class="rowacts"><button class="btn sm" data-place="${w.stock_id}" data-n="${esc(p.name)}" data-note="${esc(w.note)}">Move or edit note</button><button class="btn sm" data-printstock="${w.stock_id}" data-n="${esc(p.name)}">Print item label</button></div></div>`).join("") : '<div class="muted sm">No stock on hand.</div>'}</div></div>`).join("")
-      : `<div class="list"><div class="empty-state">Nothing matches "${esc(q)}". Try fewer words, or part of the part number.<div style="margin-top:12px"><button class="btn sm" type="button" id="addFromFind">Add "${esc(q)}" by hand</button></div></div></div>`;
-    const af = $("#addFromFind"); if (af) af.onclick = () => handSheet(q);
-    box.querySelectorAll("[data-place]").forEach(b => b.onclick = () => placeSheet(+b.dataset.place, b.dataset.n, b.dataset.note));
-    box.querySelectorAll("[data-printstock]").forEach(b => b.onclick = () => printSheet("stockitem", [+b.dataset.printstock], b.dataset.n));
-  } catch (e) { box.innerHTML = `<div class="card">${esc(e.message)}</div>`; }
+/* ---------- find: browse when the box is empty, search when it is not ---------- */
+const rootOf = id => { let c = state.cats.find(x => x.id === id); while (c && c.parent) c = state.cats.find(x => x.id === c.parent); return c; };
+const hl = (text, q) => {  // highlight what was searched for, in what is shown
+  const t = esc(text ?? ""), words = q.split(/\s+/).filter(w => w.length > 1 && !/^(amp|lt|gt|quot|39)$/i.test(w)).map(w => esc(w).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  return words.length ? t.replace(new RegExp("(" + words.join("|") + ")", "gi"), "<mark>$1</mark>") : t;
+};
+let found = { rows: [], q: "", cat: 0, stock: false, sort: "rel" }, findSeq = 0;
+const SKEL_ROWS = n => `<div class="list">${'<div class="row"><div class="thumb empty sk"></div><div class="body"><div class="sk" style="width:55%"></div><div class="sk" style="width:80%;margin-top:8px"></div></div></div>'.repeat(n)}</div>`;
+function foundRow(r, q) {
+  const lines = r.where, note = lines.find(w => w.note);
+  return `<a class="row frow" href="#part/${r.id}" data-peek="${r.id}">${img(r.thumbnail, r.name)}<div class="body"><div class="name">${hl(r.name, q)}</div>
+    ${r.description ? `<div class="desc">${hl(r.description, q)}</div>` : ""}
+    <div class="meta">${lines.slice(0, 2).map(w => tag(w.path, w.unplaced)).join("")}${lines.length > 2 ? `<span class="more">+${lines.length - 2} more</span>` : ""}${lines.length ? "" : '<span class="tag none">no stock</span>'}</div>
+    ${note ? `<div class="note">${hl(note.note, q)}</div>` : ""}</div><div class="qty">${esc(r.total)}<small>in stock</small></div></a>`;
 }
+function renderFound(box) {
+  const f = found, byCat = new Map();
+  f.rows.forEach(r => { const k = r.category_id || 0; byCat.set(k, { name: r.category || "No category", n: (byCat.get(k)?.n || 0) + 1 }); });
+  let rows = f.rows.filter(r => (!f.cat || (r.category_id || 0) === f.cat) && (!f.stock || r.total > 0));
+  if (f.sort === "name") rows = rows.slice().sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  if (f.sort === "stock") rows = rows.slice().sort((a, b) => b.total - a.total);
+  const none = f.rows.length
+    ? `<div class="list"><div class="empty-state">No results with these filters.<div style="margin-top:12px"><button class="btn sm" type="button" id="fReset">Clear filters</button></div></div></div>`
+    : `<div class="list"><div class="empty-state">Nothing matches "${esc(f.q)}". Try fewer words, or part of the part number.<div style="margin-top:12px"><button class="btn sm" type="button" id="addFromFind">Add "${esc(f.q)}" as a new part</button></div></div></div>`;
+  box.innerHTML = `<div class="resbar"><div><b>${rows.length}</b> ${rows.length === 1 ? "result" : "results"} <span class="muted">for "${esc(f.q)}"</span></div>
+    ${f.rows.length ? `<div class="resctl"><label class="tog"><input type="checkbox" id="fStock" ${f.stock ? "checked" : ""}><span>In stock</span></label>
+    <select id="fSort" class="field sm" aria-label="Sort results"><option value="rel">Best match</option><option value="name" ${f.sort === "name" ? "selected" : ""}>Name</option><option value="stock" ${f.sort === "stock" ? "selected" : ""}>Most stock</option></select></div>` : ""}</div>
+    ${byCat.size > 1 ? `<div class="chips tight"><button type="button" class="chip ${f.cat ? "" : "on"}" data-fc="0">All <small>${f.rows.length}</small></button>${[...byCat].map(([id, c]) => `<button type="button" class="chip ${f.cat === id ? "on" : ""}" data-fc="${id}">${esc(c.name)} <small>${c.n}</small></button>`).join("")}</div>` : ""}
+    ${rows.length ? `<div class="list">${rows.map(r => foundRow(r, f.q)).join("")}</div>` : none}`;
+  box.querySelectorAll("[data-fc]").forEach(b => b.onclick = () => { found.cat = +b.dataset.fc; renderFound(box); });
+  const st = $("#fStock"); if (st) st.onchange = () => { found.stock = st.checked; renderFound(box); };
+  const so = $("#fSort"); if (so) so.onchange = () => { found.sort = so.value; renderFound(box); };
+  const rs = $("#fReset"); if (rs) rs.onclick = () => { found.cat = 0; found.stock = false; renderFound(box); };
+  const af = $("#addFromFind"); if (af) af.onclick = () => handSheet(f.q);
+}
+async function renderBrowse(box) {
+  const seq = ++findSeq;
+  box.innerHTML = `<div class="tiles">${'<div class="ctile"><div class="sk" style="width:45%;height:34px"></div><div class="sk" style="width:70%;margin-top:14px"></div></div>'.repeat(4)}</div>`;
+  let rows = [], total = 0;
+  try { if (!state.cats.length) await loadCats(); const r = await api("/api/browse?sort=newest"); rows = r.parts; total = r.total; } catch (e) { if (!state.cats.length) { box.innerHTML = `<div class="card">${esc(e.message)}</div>`; return; } }
+  if (seq !== findSeq || $("#q").value.trim()) return;  // the box changed while this loaded
+  const kids = treeKids(), roots = kids.get(0) || [], thumbs = new Map();
+  rows.forEach(p => { const r = rootOf(p.category_id); if (!r || !p.thumbnail) return; const a = thumbs.get(r.id) || []; if (a.length < 3 && !a.includes(p.thumbnail)) a.push(p.thumbnail); thumbs.set(r.id, a); });
+  $("#findSub").textContent = roots.length ? `${total || state.cats.reduce((n, c) => n + (c.parent ? 0 : c.count), 0)} parts in ${roots.length} ${roots.length === 1 ? "category" : "categories"}` : "";
+  const tile = c => {
+    const subs = kids.get(c.id) || [], ph = thumbs.get(c.id) || [];
+    return `<a class="ctile" href="#cat/${c.id}" data-peekcat="${c.id}"><span class="stack">${ph.length ? ph.map(t => `<img src="${esc(t)}" alt="" loading="lazy">`).join("") : `<i class="glyph">${esc(c.name.slice(0, 1))}</i>`}</span><span class="n">${esc(c.count)}</span>
+      <b>${esc(c.name)}</b><small>${esc(subs.slice(0, 3).map(k => k.name).join(", "))}${subs.length > 3 ? ", more" : ""}</small></a>`;
+  };
+  box.innerHTML = organiseBanner() + (roots.length
+    ? `<h2 style="margin-top:12px">Categories <small>${roots.length}</small></h2><div class="tiles">${roots.map(tile).join("")}</div>`
+      + (rows.length ? `<h2>Recently added</h2><div class="list">${rows.slice(0, 6).map(p => `<a class="row catrow" href="#part/${p.id}" data-peek="${p.id}">${img(p.thumbnail, p.name)}<div class="body"><div class="name">${esc(p.name)}</div><div class="desc">${esc(p.description || "")}</div></div><div class="qty">${esc(p.total)}<small>in stock</small></div></a>`).join("")}</div>` : "")
+    : `<div class="list"><div class="empty-state">Nothing to browse yet. Scan a bag and its category appears here.</div></div>`);
+  wireOrganise(box);
+}
+async function runFind() {
+  const q = $("#q").value.trim(), box = $("#res"), seq = ++findSeq;
+  $("#qClear").hidden = !q;
+  if (!q) return renderBrowse(box);
+  $("#findSub").textContent = "";
+  box.innerHTML = SKEL_ROWS(3);
+  try {
+    const rows = await api("/api/find?q=" + encodeURIComponent(q));
+    if (seq !== findSeq) return;  // a newer search is under way
+    found = { rows, q, cat: 0, stock: false, sort: "rel" }; renderFound(box);
+  } catch (e) { if (seq === findSeq) box.innerHTML = `<div class="card">${esc(e.message)}</div>`; }
+}
+$("#qClear").onclick = () => { $("#q").value = ""; runFind(); $("#q").focus(); };
+$("#q").onkeydown = e => { if (e.key === "Escape" && $("#q").value) { $("#q").value = ""; runFind(); } };
 $("#q").oninput = () => { clearTimeout(ft); ft = setTimeout(runFind, 250); };
 $("#homeQ").onkeydown = e => { if (e.key === "Enter" && e.target.value.trim()) { $("#q").value = e.target.value.trim(); location.hash = "#find"; } };
 /* the 3D chip on the home panel: loaded after first paint, only where WebGL exists; a drawing stands in until then */
@@ -558,7 +619,6 @@ addEventListener("keydown", e => {  // "/" jumps to search, as the box says
   e.preventDefault(); if (state.view === "home") $("#homeQ").focus(); else { location.hash = "#find"; setTimeout(() => $("#q").focus(), 60); }
 });
 $("#homeHand").onclick = () => handSheet();
-$("#homeSupply").onclick = () => supplySheet();
 $("#pinBtn").onclick = async () => { const p = await askPin(); if (p) { setPin(p); toast("PIN saved"); } };
 
 /* ---------- categories and browse ---------- */
@@ -625,15 +685,6 @@ document.addEventListener("click", e => {
   const id = +g.dataset.tg; state.open.has(id) ? state.open.delete(id) : state.open.add(id);
   localStorage.treeOpen = JSON.stringify([...state.open]); renderTrees();
 });
-function renderTree(box) {
-  const kids = treeKids(), roots = kids.get(0) || [];
-  box.innerHTML = organiseBanner() + `<h2>Browse by category <small>${roots.length}</small></h2>` + (roots.length
-    ? `<div class="list tree landing-tree" id="treeBox">${treeHtml(null)}</div>
-       <div class="landing-grid">${roots.map(c => `<a class="catcard" href="#cat/${c.id}" data-peekcat="${c.id}"><span class="n">${esc(c.count)}</span><b>${esc(c.name)}</b><small>${esc((kids.get(c.id) || []).slice(0, 3).map(k => k.name).join(", "))}${(kids.get(c.id) || []).length > 3 ? ", ..." : ""}</small></a>`).join("")}</div>`
-    : `<div class="list"><div class="empty-state">Nothing to browse yet. Scan a bag and its category appears here.</div></div>`);
-  wireOrganise(box);
-}
-
 /* ---------- previews: hover on a computer, tap the picture on a phone ---------- */
 const HOVER = matchMedia("(hover: hover) and (pointer: fine)").matches;
 const peekCache = new Map();

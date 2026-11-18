@@ -31,7 +31,6 @@
   <div class="actions">
    <a class="btn primary" href="#scan"><svg viewBox="0 0 24 24"><path d="M4 8V5a1 1 0 011-1h3M16 4h3a1 1 0 011 1v3M20 16v3a1 1 0 01-1 1h-3M8 20H5a1 1 0 01-1-1v-3M4 12h16"/></svg>Scan a bag</a>
    <button class="btn" type="button" id="homeHand"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3.5"/><path d="M12 8.5v7M8.5 12h7"/></svg>Add by hand</button>
-   <button class="btn" type="button" id="homeSupply"><svg viewBox="0 0 24 24"><path d="M13 3L5 14h6l-1 7 8-11h-6z"/></svg>Add power supply</button>
   </div>
   <div id="homeBody"></div>
  </section>
@@ -62,9 +61,9 @@
  <section id="v-part" class="view" hidden><div id="partBody"></div></section>
 
  <section id="v-find" class="view" hidden>
-  <h1>Find</h1>
-  <input id="q" class="field search" type="search" placeholder="Search parts and your location notes" enterkeyhint="search" autocomplete="off">
-  <div id="res" style="margin-top:16px"></div>
+  <div class="findhead"><h1>Find</h1><span class="muted sm" id="findSub"></span></div>
+  <div class="findbar"><label class="searchbox plain"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg><input id="q" class="field search" type="search" placeholder="Search parts, specs, or a note you wrote" enterkeyhint="search" autocomplete="off" aria-label="Search parts"><button type="button" class="clearbtn" id="qClear" hidden aria-label="Clear search">&times;</button></label></div>
+  <div id="res"></div>
  </section>
 </main>
 
