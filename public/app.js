@@ -107,7 +107,8 @@ async function handSheet(prefill = "") {
    <div class="photo-pick"><button class="btn sm" type="button" id="pickPhoto">Take or choose a photo</button><span id="photoName">So it shows up when you search</span></div>
    <input name="photo" id="photoIn" type="file" accept="image/*" capture="environment" hidden>
    ${state.bin ? `<div>${tag(state.bin.path)}</div>` : `<label>Where is it?<textarea class="field" name="note" required placeholder="Blue box under the desk, left side"></textarea></label>`}
-   <button class="btn primary" type="submit">Add part</button>`,
+   <button class="btn primary" type="submit">Add part</button>
+   <button class="btn quiet" type="button" id="toSupply">It is a power supply</button>`,
     async f => {
       const body = { name: f.get("name").trim(), description: (f.get("description") || "").trim(), qty: +f.get("qty"), category: +f.get("category") || null, location_id: state.bin?.id ?? null, note: (f.get("note") || "").trim() || null };
       let r;
@@ -119,6 +120,50 @@ async function handSheet(prefill = "") {
       }
       finishManual(r);
     });
+  $("#pickPhoto").onclick = () => $("#photoIn").click();
+  $("#photoIn").onchange = e => { $("#photoName").textContent = e.target.files[0] ? "Photo ready: " + e.target.files[0].name : "So it shows up when you search"; };
+  $("#toSupply").onclick = () => { const name = $("#sheetForm [name=name]").value; $("#sheet").close(); supplySheet(name); };
+}
+async function supplySheet(prefill = "") {
+  let info = { models: [], kinds: [] };
+  try { info = await api("/api/supplies"); } catch { /* the form still works without suggestions */ }
+  openSheet(`<h3>Add a power supply</h3>
+   <p class="muted sm">One model can come in several configurations. Each voltage is kept as its own item under the model, with its own stock and bin.</p>
+   <label>Model<input class="field mono" name="model" list="supModels" value="${esc(prefill)}" placeholder="LRS-350" required autocomplete="off"></label>
+   <datalist id="supModels">${info.models.map(m => `<option value="${esc(m.name)}">`).join("")}</datalist>
+   <div class="sm muted" id="supHave"></div>
+   <div class="grid2"><label>Output voltage<input class="field" name="voltage" inputmode="decimal" placeholder="24" required autocomplete="off"></label>
+    <label>Max current (A)<input class="field" name="current" inputmode="decimal" placeholder="14.6" autocomplete="off"></label></div>
+   <div class="grid2"><label>Power (W, optional)<input class="field" name="watts" inputmode="decimal" placeholder="350" autocomplete="off"></label>
+    <label>Quantity<input class="field" name="qty" type="number" inputmode="numeric" min="1" required placeholder="1"></label></div>
+   <label>Manufacturer (optional)<input class="field" name="maker" placeholder="Mean Well" autocomplete="off"></label>
+   <label>Type<select class="field" name="kind"><option value="">Not sure</option>${info.kinds.map(k => `<option>${esc(k)}</option>`).join("")}</select></label>
+   <div class="grid2"><label>Input (optional)<input class="field" name="input_range" placeholder="90-264VAC" autocomplete="off"></label>
+    <label>Connector (optional)<input class="field" name="connector" placeholder="Screw terminal" autocomplete="off"></label></div>
+   <label>Mounting (optional)<input class="field" name="mounting" placeholder="Chassis, DIN rail, desktop" autocomplete="off"></label>
+   <div class="photo-pick"><button class="btn sm" type="button" id="pickPhoto">Take or choose a photo</button><span id="photoName">So it shows up when you search</span></div>
+   <input name="photo" id="photoIn" type="file" accept="image/*" capture="environment" hidden>
+   ${state.bin ? `<div>${tag(state.bin.path)}</div>` : `<label>Where is it?<textarea class="field" name="note" required placeholder="Blue box under the desk, left side"></textarea></label>`}
+   <button class="btn primary" type="submit">Add power supply</button>`,
+    async f => {
+      const body = { model: f.get("model").trim(), voltage: f.get("voltage").trim(), current: f.get("current").trim(), watts: f.get("watts").trim(), qty: +f.get("qty"),
+        maker: f.get("maker").trim(), kind: f.get("kind"), input_range: f.get("input_range").trim(), connector: f.get("connector").trim(), mounting: f.get("mounting").trim(),
+        location_id: state.bin?.id ?? null, note: (f.get("note") || "").trim() || null };
+      let r;
+      try { r = await api("/api/supply/new", body); } catch (e) { toast(e.message); return; }
+      const photo = f.get("photo");
+      if (photo && photo.size) {
+        try { const u = await uploadPhoto(r.part_id, photo); r.thumbnail = u.thumbnail || r.thumbnail; }
+        catch (e) { toast("Added, but the photo failed: " + e.message); }
+      }
+      finishManual(r);
+    });
+  const have = () => {
+    const m = info.models.find(x => x.name.toLowerCase() === $("#sheetForm [name=model]").value.trim().toLowerCase());
+    $("#supHave").innerHTML = m ? `Already have: ${m.variants.length ? m.variants.map(v => `<a href="#part/${v.id}">${esc(v.name.slice(m.name.length).trim())}</a> (${esc(v.stock)})`).join(", ") : "no configurations yet"}` : "";
+  };
+  $("#sheetForm [name=model]").oninput = have; have();
+  $("#supHave").onclick = e => { if (e.target.closest("a")) $("#sheet").close(); };
   $("#pickPhoto").onclick = () => $("#photoIn").click();
   $("#photoIn").onchange = e => { $("#photoName").textContent = e.target.files[0] ? "Photo ready: " + e.target.files[0].name : "So it shows up when you search"; };
 }
@@ -415,6 +460,7 @@ async function runFind() {
 $("#q").oninput = () => { clearTimeout(ft); ft = setTimeout(runFind, 250); };
 $("#homeQ").onkeydown = e => { if (e.key === "Enter" && e.target.value.trim()) { $("#q").value = e.target.value.trim(); location.hash = "#find"; } };
 $("#homeHand").onclick = () => handSheet();
+$("#homeSupply").onclick = () => supplySheet();
 $("#pinBtn").onclick = async () => { const p = await askPin(); if (p) { setPin(p); toast("PIN saved"); } };
 
 /* ---------- categories and browse ---------- */
@@ -613,6 +659,8 @@ async function loadPart(id) {
      <div class="actions2"><button class="btn primary" id="printPart">Print part label</button><button class="btn" id="photoPart">${d.image ? "Change photo" : "Add photo"}</button></div>
      <input id="photoFile" type="file" accept="image/*" capture="environment" hidden>
      <div class="linkrow"><button class="btn quiet sm" id="editPart">Edit name and description</button>${safeUrl(d.link) ? `<a class="btn quiet sm" href="${esc(d.link)}" target="_blank" rel="noopener noreferrer">Datasheet</a>` : ""}<a class="btn quiet sm" href="${esc(d.inventree_url)}" target="_blank" rel="noopener noreferrer">Open in InvenTree</a></div>
+     ${d.template ? `<p class="sm muted" style="margin-top:10px">A configuration of <a href="#part/${d.template.id}">${esc(d.template.name)}</a></p>` : ""}
+     ${d.variants.length ? `<h2>Configurations <small>${d.variants.length}</small></h2><div class="list">${d.variants.map(v => `<a class="line" href="#part/${v.id}" style="display:flex;justify-content:space-between;text-decoration:none;color:inherit"><b>${esc(v.name.slice(d.name.length).trim() || v.name)}</b><span class="muted">${esc(v.stock)} in stock</span></a>`).join("")}</div>` : ""}
      <h2>Where it is <small>${d.stock.length} ${d.stock.length === 1 ? "line" : "lines"}</small></h2>
      <div class="list">${d.stock.length ? d.stock.map(s => `<div class="line"><div class="top2">${tag(s.path, s.unplaced)}<span class="sm muted">quantity ${qbtn(s.stock_id, d.name, s.qty)}</span></div>
         ${s.note ? `<div class="note" style="margin:0">${esc(s.note)}</div>` : ""}

@@ -21,6 +21,7 @@ from .locations import LABEL_PREFIX, add_room, ensure_path, has_room, parse_labe
 from .notes import get_note, set_note
 from .organise import organise
 from .parser import ScanError, parse_scan
+from .supplies import KINDS, add_power_supply, models as supply_models
 from .printing import MODELS, plan_print, printers, run_print, templates_by_model
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -133,6 +134,22 @@ class NewPartIn(BaseModel):
     category: int | None = None
     lot_code: str | None = None
     date_code: str | None = None
+
+
+class SupplyIn(BaseModel):
+    model: str
+    voltage: str
+    current: str | None = None
+    qty: int
+    location_id: int | None = None
+    note: str | None = None
+    kind: str | None = None
+    maker: str | None = None
+    watts: str | None = None
+    input_range: str | None = None
+    connector: str | None = None
+    mounting: str | None = None
+    description: str | None = None
 
 
 class PlaceIn(BaseModel):
@@ -262,6 +279,24 @@ def new_part(body: NewPartIn):
     if r.status == "error":
         raise HTTPException(422, r.message)
     return _bag_response(r, body.name.strip(), body.qty)
+
+
+@app.get("/api/supplies", dependencies=[Depends(auth)])
+def supplies():
+    """Power supply models with their variants, and the kinds you can file them under."""
+    return {"models": supply_models(inv()), "kinds": KINDS}
+
+
+@app.post("/api/supply/new", dependencies=[Depends(auth)])
+def new_supply(body: SupplyIn):
+    """Add stock of one power supply configuration (a variant of its model; the model is created if new)."""
+    r = add_power_supply(inv(), body.model, body.voltage, body.current or "", body.qty, body.location_id, body.note,
+                         body.kind or "", body.maker or "", body.watts or "", body.input_range or "",
+                         body.connector or "", body.mounting or "", body.description or "")
+    if r.status == "error":
+        raise HTTPException(422, r.message)
+    invalidate_index()
+    return _bag_response(r, body.model.strip(), body.qty)
 
 
 @app.post("/api/part/{pk}/image", dependencies=[Depends(auth)])
@@ -409,6 +444,11 @@ def part_detail(pk: int):
         else:
             params.append({"name": n, "value": x["data"]})
     stock = i.list("stock/", part=pk, location_detail=True, limit=200)
+    variants = [{"id": v["pk"], "name": v["name"], "stock": v.get("total_in_stock") or 0}
+                for v in i.list("part/", variant_of=pk, limit=200)] if p.get("is_template") else []
+    template = None
+    if p.get("variant_of"):
+        template = {"id": p["variant_of"], "name": i.get(f"part/{p['variant_of']}/")["name"]}
     lines = []
     for s in stock:
         w = _where(s)
@@ -416,7 +456,8 @@ def part_detail(pk: int):
         lines.append({**w, "batch": s.get("batch", ""), "details": raw, "date": (s.get("creation_date") or "")[:10]})
     return {
         "id": pk, "name": p["name"], "description": p["description"], "image": p.get("image"), "link": p.get("link"),
-        "category": cat, "category_id": p.get("category"), "last_scanned": last, "total": sum(s["quantity"] for s in stock if s.get("in_stock", True)),
+        "category": cat, "category_id": p.get("category"), "last_scanned": last, "total": sum(v["stock"] for v in variants) if variants else sum(s["quantity"] for s in stock if s.get("in_stock", True)),
+        "variants": variants, "template": template,
         "manufacturers": [{"name": (m.get("manufacturer_detail") or {}).get("name", ""), "mpn": m["MPN"]}
                           for m in i.list("company/part/manufacturer/", part=pk, manufacturer_detail=True)],
         "suppliers": [{"sku": s["SKU"], "variant": s.get("description", ""), "link": s.get("link", "")}

@@ -35,6 +35,9 @@ small bags into drawers.
   Package and so on). **Sort them** files existing Unsorted parts the same way, and parts with no supplier record at all (a laptop, a
   hand-made board) go to **Miscellaneous**, which is also the default for parts you add by hand, and Edit lets you change a part's
   category by hand.
+- **Power supplies with several configurations.** "Add power supply" keeps one model (say LRS-350) as a template part and each
+  voltage as its own variant with its own stock and bin, under Supplies > Power Supplies. Specs use DigiKey's parameter names,
+  so the voltage, current and wattage filters work across typed-in and DigiKey supplies.
 - **McMaster-style browsing.** On a computer the category tree is a sidebar that expands in place, and **hovering**
   a part shows its photo, specs and where it is stored, while hovering a category shows its sub-categories and some
   of its parts. On a phone the same tree expands inline, and tapping a part's picture opens the same preview.
