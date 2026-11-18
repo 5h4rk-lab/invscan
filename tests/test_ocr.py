@@ -118,3 +118,8 @@ def test_every_digikey_number_on_the_photo_is_tried_and_the_rest_skipped():
     dk = DK({"lookup": prod("4939", "Adafruit Industries LLC", "1528-4939-ND")})
     r = find_parts(dk, e.queries, e.dk_pns)
     assert [c["dk_pn"] for c in r] == ["1528-4939-ND"] and dk.asked == []  # no keyword guessing once a DigiKey number resolved
+
+
+def test_garbled_copies_of_a_digikey_number_are_not_searched_as_guesses():
+    assert extract("SHIP 29-0CT\nPN: 296-19733-5-NO\n").queries == ["296-19733-5-ND"]
+    assert extract("29-0CT\n29-0CT\n").queries == []

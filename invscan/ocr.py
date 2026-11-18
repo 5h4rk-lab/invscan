@@ -122,7 +122,7 @@ def extract(text: str) -> Extracted:
                     tok = _clean(nxt)
                     if tok in STOP or tok in LABELS or re.sub(r"[^A-Z0-9]", "", tok) in LABELS:
                         continue
-                    if _TOKEN.fullmatch(tok) and _plausible(tok):
+                    if _TOKEN.fullmatch(tok) and _plausible(tok) and not digikey_numbers(tok):
                         labelled.append(tok)
                     break
     skip = set()
