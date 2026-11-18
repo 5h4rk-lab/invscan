@@ -544,6 +544,19 @@ async function runFind() {
 }
 $("#q").oninput = () => { clearTimeout(ft); ft = setTimeout(runFind, 250); };
 $("#homeQ").onkeydown = e => { if (e.key === "Enter" && e.target.value.trim()) { $("#q").value = e.target.value.trim(); location.hash = "#find"; } };
+/* the 3D chip on the home panel: loaded after first paint, only where WebGL exists; a drawing stands in until then */
+let hero = null;
+async function mountHero() {
+  const c = $("#heroCanvas"); if (!c || hero) return;
+  let gl = false; try { gl = !!document.createElement("canvas").getContext("webgl2"); } catch { /* no WebGL */ }
+  if (!gl) return;
+  hero = "loading";
+  try { const m = await import("/static/vendor/hero3d.js"); hero = m.mountChip(c); c.classList.add("on"); hero.setActive(state.view === "home"); } catch { hero = null; }
+}
+addEventListener("keydown", e => {  // "/" jumps to search, as the box says
+  if (e.key !== "/" || e.metaKey || e.ctrlKey || /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName) || $("#sheet").open) return;
+  e.preventDefault(); if (state.view === "home") $("#homeQ").focus(); else { location.hash = "#find"; setTimeout(() => $("#q").focus(), 60); }
+});
 $("#homeHand").onclick = () => handSheet();
 $("#homeSupply").onclick = () => supplySheet();
 $("#pinBtn").onclick = async () => { const p = await askPin(); if (p) { setPin(p); toast("PIN saved"); } };
@@ -791,7 +804,8 @@ function route() {
   v === "scan" ? startCam() : stopCam();
   document.body.classList.toggle("has-tree", v === "find" || v === "cat");
   if (v === "find" || v === "cat") (state.cats.length ? Promise.resolve() : loadCats()).then(renderTrees).catch(() => {});
-  if (v === "home") loadHome();
+  if (v === "home") { loadHome(); setTimeout(mountHero, 250); }
+  if (hero && typeof hero === "object") hero.setActive(v === "home");
   if (v === "find") { runFind(); $("#q").focus({ preventScroll: true }); }
   if (v === "part") loadPart(arg);
   if (v === "cat") loadCat(arg);

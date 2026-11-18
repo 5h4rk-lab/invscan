@@ -2,13 +2,13 @@
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#0E4B3C">
+<meta name="theme-color" content="#0A1830">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="invscan">
 <title>invscan</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230E4B3C'/%3E%3Ccircle cx='16' cy='16' r='6' fill='%23D08A3E'/%3E%3Ccircle cx='16' cy='16' r='2.4' fill='%230E4B3C'/%3E%3C/svg%3E">
-<link rel="preload" href="/static/fonts/bricolage.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/static/fonts/plexsans.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/static/app.css">
 </head><body>
 <header class="top"><span class="mark"></span><b>invscan</b><span class="sp"></span><img class="hen" src="/static/hen.png" alt="" width="36" height="36"><button id="pinBtn" type="button">PIN</button></header>
@@ -17,14 +17,22 @@
 
 <main>
  <section id="v-home" class="view">
-  <h1>What are you looking for?</h1>
-  <input id="homeQ" class="field search" type="search" placeholder="Part number, value, or a note you wrote" enterkeyhint="search" autocomplete="off">
-  <div class="actions">
-   <a class="btn primary" href="#scan" style="text-decoration:none">Scan a bag</a>
-   <button class="btn" type="button" id="homeHand">Add by hand</button>
-   <button class="btn" type="button" id="homeSupply">Add power supply</button>
+  <div class="hero-panel">
+   <div class="hp-3d" aria-hidden="true">
+    <canvas id="heroCanvas"></canvas>
+    <svg viewBox="0 0 200 200" fill="none"><ellipse cx="100" cy="168" rx="62" ry="9" fill="#000" opacity=".25"/><g transform="translate(100 98) rotate(-8)"><rect x="-52" y="-52" width="104" height="104" rx="10" fill="#12161C" stroke="#2a3140"/><g fill="#E6B02E"><rect x="-47" y="-62" width="5" height="12"/><rect x="-47" y="50" width="5" height="12"/><rect x="-62" y="-47" width="12" height="5"/><rect x="50" y="-47" width="12" height="5"/><rect x="-37" y="-62" width="5" height="12"/><rect x="-37" y="50" width="5" height="12"/><rect x="-62" y="-37" width="12" height="5"/><rect x="50" y="-37" width="12" height="5"/><rect x="-27" y="-62" width="5" height="12"/><rect x="-27" y="50" width="5" height="12"/><rect x="-62" y="-27" width="12" height="5"/><rect x="50" y="-27" width="12" height="5"/><rect x="-17" y="-62" width="5" height="12"/><rect x="-17" y="50" width="5" height="12"/><rect x="-62" y="-17" width="12" height="5"/><rect x="50" y="-17" width="12" height="5"/><rect x="-7" y="-62" width="5" height="12"/><rect x="-7" y="50" width="5" height="12"/><rect x="-62" y="-7" width="12" height="5"/><rect x="50" y="-7" width="12" height="5"/><rect x="3" y="-62" width="5" height="12"/><rect x="3" y="50" width="5" height="12"/><rect x="-62" y="3" width="12" height="5"/><rect x="50" y="3" width="12" height="5"/><rect x="13" y="-62" width="5" height="12"/><rect x="13" y="50" width="5" height="12"/><rect x="-62" y="13" width="12" height="5"/><rect x="50" y="13" width="12" height="5"/><rect x="23" y="-62" width="5" height="12"/><rect x="23" y="50" width="5" height="12"/><rect x="-62" y="23" width="12" height="5"/><rect x="50" y="23" width="12" height="5"/><rect x="33" y="-62" width="5" height="12"/><rect x="33" y="50" width="5" height="12"/><rect x="-62" y="33" width="12" height="5"/><rect x="50" y="33" width="12" height="5"/><rect x="43" y="-62" width="5" height="12"/><rect x="43" y="50" width="5" height="12"/><rect x="-62" y="43" width="12" height="5"/><rect x="50" y="43" width="12" height="5"/></g><text x="-40" y="-2" font-family="IBM Plex Sans,sans-serif" font-weight="600" font-size="22" fill="#d8dee8">invscan</text><circle cx="-38" cy="-38" r="4" fill="#d8dee8" opacity=".5"/></g></svg>
+   </div>
+   <div class="hp-copy">
+    <h1>What are you looking for?</h1>
+    <label class="searchbox"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg><input id="homeQ" class="field search" type="search" placeholder="Part number, value, or a note" enterkeyhint="search" autocomplete="off" aria-label="Search parts"><kbd>/</kbd></label>
+   </div>
+   <div class="stats" id="stats"></div>
   </div>
-  <div class="stats" id="stats"></div>
+  <div class="actions">
+   <a class="btn primary" href="#scan"><svg viewBox="0 0 24 24"><path d="M4 8V5a1 1 0 011-1h3M16 4h3a1 1 0 011 1v3M20 16v3a1 1 0 01-1 1h-3M8 20H5a1 1 0 01-1-1v-3M4 12h16"/></svg>Scan a bag</a>
+   <button class="btn" type="button" id="homeHand"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3.5"/><path d="M12 8.5v7M8.5 12h7"/></svg>Add by hand</button>
+   <button class="btn" type="button" id="homeSupply"><svg viewBox="0 0 24 24"><path d="M13 3L5 14h6l-1 7 8-11h-6z"/></svg>Add power supply</button>
+  </div>
   <div id="homeBody"></div>
  </section>
 
@@ -36,14 +44,16 @@
    <div class="st" id="st">starting camera</div>
    <div class="off" id="camOff" hidden></div>
   </div>
-  <button id="photoBtn" class="btn primary big" type="button">Photo of DigiKey bag</button>
+  <button id="photoBtn" class="btn primary big" type="button"><svg viewBox="0 0 24 24"><path d="M4 8h3l1.5-2h7L17 8h3v11H4z"/><circle cx="12" cy="13.5" r="3.5"/></svg>Photo of a bag</button>
   <input id="photo" type="file" accept="image/*" capture="environment" hidden>
-  <button id="dmgBtn" class="btn quiet" type="button" style="margin-top:6px;width:100%;font-size:15px">Label won't scan? Type its part number</button>
-  <button id="ocrBtn" class="btn quiet" type="button" style="margin-top:6px;width:100%;font-size:15px">No square code? Read the label text</button>
+  <div class="alt">
+   <button id="dmgBtn" class="btn" type="button"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2.5"/><path d="M7 10h.01M11 10h.01M15 10h.01M7.5 14h9"/></svg>Type part number</button>
+   <button id="ocrBtn" class="btn" type="button"><svg viewBox="0 0 24 24"><path d="M4 8V5a1 1 0 011-1h3M16 4h3a1 1 0 011 1v3M20 16v3a1 1 0 01-1 1h-3M8 20H5a1 1 0 01-1-1v-3"/><path d="M8 9h8M8 12h8M8 15h5"/></svg>Read label text</button>
+   <button id="handBtn" class="btn" type="button"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3.5"/><path d="M12 8.5v7M8.5 12h7"/></svg>Add by hand</button>
+  </div>
   <input id="ocrPhoto" type="file" accept="image/*" capture="environment" hidden>
-  <button id="handBtn" class="btn big" type="button" style="margin-top:10px;font-size:16px;padding:14px">No DigiKey label? Add a part by hand</button>
-  <div class="actions"><input id="qty" class="field" inputmode="numeric" placeholder="Quantity if the label has none" style="flex:2"></div>
-  <p class="muted sm" style="margin-top:10px">Bin labels scan live. Bags are most reliable as a photo: tap the code to focus, then shoot.</p>
+  <div class="qtyrow"><input id="qty" class="field" inputmode="numeric" placeholder="Quantity, if the label has none" aria-label="Quantity if the label has none"></div>
+  <p class="muted sm" style="margin-top:12px">Bin labels scan live. Bags are most reliable as a photo: tap the code to focus, then shoot.</p>
   <div class="feed" id="feed"></div>
  </section>
 

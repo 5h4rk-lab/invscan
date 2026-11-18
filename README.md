@@ -6,6 +6,10 @@ bin you are standing at, and later you can search for it by name, value, or a no
 
 It is a small web app that sits next to InvenTree and talks to its API. Nothing is installed inside InvenTree.
 
+## Preview the screens without InvenTree
+
+`python scripts/demo_server.py` serves the real pages with sample data (no InvenTree, DigiKey or PIN needed; nothing is saved), at http://127.0.0.1:8800. Handy for working on the design.
+
 ## Why
 
 InvenTree's built-in DigiKey barcode plugin identifies a scan, but it needs the supplier part and purchase order to
@@ -224,13 +228,15 @@ INVSCAN_ALLOW_NO_PIN=1 uvicorn invscan.server:app --reload
 ```
 invscan/   parser.py (label -> fields)   ingest.py (scan -> InvenTree)   enrich.py / digikey.py
            params.py  locations.py  notes.py  client.py  server.py (FastAPI)
-public/    index.html  app.js  app.css  vendor/ (zxing-wasm)  fonts/
+public/    index.html  app.js  app.css  vendor/ (zxing-wasm, tesseract, 3D chip)  fonts/
 tests/     parser, ingest, PIN gate
 ```
 
 Third-party assets in `public/` are committed; `scripts/vendor.sh` re-fetches them:
 [zxing-wasm](https://github.com/Sec-ant/zxing-wasm) (MIT, wraps Apache-2.0 zxing-cpp),
-Bricolage Grotesque and IBM Plex Mono (SIL Open Font License 1.1).
+[tesseract.js](https://github.com/naptha/tesseract.js) (Apache-2.0, for reading label text),
+[three.js](https://threejs.org) (MIT, the 3D chip on the home page; source in `scripts/hero3d.src.js`),
+IBM Plex Sans and IBM Plex Mono (SIL Open Font License 1.1).
 
 ## Limitations
 
