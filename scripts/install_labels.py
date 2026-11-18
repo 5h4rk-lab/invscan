@@ -11,6 +11,9 @@ import requests
 
 URL = os.environ["INVENTREE_URL"].rstrip("/")
 HEAD = {"Authorization": f"Token {os.environ['INVENTREE_TOKEN']}"}
+# where the app lives: a cabinet label's QR is a link to it, so a phone camera opens "what is in here". Changing it later
+# means reprinting those labels (the app still reads older ones).
+APP_URL = os.environ.get("INVSCAN_URL", "https://invscan-eight.vercel.app").rstrip("/")
 import base64
 
 HERE = Path(__file__).resolve().parent.parent / "label_templates"
@@ -52,7 +55,7 @@ def main() -> int:
     existing = {t["name"]: t["pk"] for t in requests.get(f"{URL}/api/label/template/?limit=500", headers=HEAD, timeout=30).json().get("results", [])}
     for fname, name, model, w, h, desc, owner_expr in DESIGNS:
         data = {"name": name, "description": desc, "model_type": model, "width": w, "height": h, "enabled": "true", "filters": ""}
-        body = (HERE / fname).read_text().replace("__MARK__", mark_block(owner_expr))
+        body = (HERE / fname).read_text().replace("__MARK__", mark_block(owner_expr)).replace("__APP_URL__", APP_URL)
         files = {"template": (fname, body.encode(), "text/html")}
         if name in existing:
             r = requests.patch(f"{URL}/api/label/template/{existing[name]}/", headers=HEAD, data=data, files=files, timeout=60)

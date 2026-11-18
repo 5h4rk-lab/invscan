@@ -1,100 +1,49 @@
 {% extends "label/label_base.html" %}
 {% load l10n i18n barcode %}
-{# invscan bin label: QR on the left; on the right a highlighted room block (any level named "Room ..."), then cabinet and drawer, with the bin name large. #}
+{# invscan cabinet / drawer / bin label. Made to be told apart from an item label at a glance: a black header band that says
+   where it is, a framed edge, and a big name. The QR is a link to the app, so a phone camera opens "what is in here". #}
 
 {% block style %}
-.qr {
-    position: absolute;
-    left: 1.5mm;
-    top: 1.5mm;
-    {% localize off %}
-    height: {{ height|add:"-3" }}mm;
-    width: {{ height|add:"-3" }}mm;
-    {% endlocalize %}
+body { font-family: Arial, Helvetica, sans-serif; color: #000; }
+
+/* the frame and the black header band are what make this a place label, not an item label */
+.frame { position: absolute; left: 0.5mm; top: 0.5mm; right: 0.5mm; bottom: 0.5mm; border: 0.55mm solid #000; }
+.band {
+    position: absolute; left: 0; right: 0; top: 0; height: 8mm;
+    background: #000; color: #fff;
+    font-size: 8.5pt; font-weight: 800; letter-spacing: 0.15mm; line-height: 8mm; text-transform: uppercase;
+    padding: 0 2.2mm; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
-.info {
-    position: absolute;
-    {% localize off %}
-    left: {{ height|add:"1" }}mm;
-    {% endlocalize %}
-    right: 1.5mm;
-    top: 1.2mm;
-    bottom: 1.2mm;
-    font-family: Arial, Helvetica, sans-serif;
-    color: #000;
-}
+.qr { position: absolute; left: 2mm; top: 9.6mm; width: 19.2mm; height: 19.2mm; }
 
-/* room, cabinet, drawer: leave the top-right corner for the mark */
-.top { margin-right: 9mm; }
-
-.room {
-    background: #000;
-    color: #fff;
-    font-size: 11pt;
-    font-weight: 800;
-    line-height: 1.25;
-    padding: 0.3mm 1.6mm;
-    margin-bottom: 0.8mm;
-    white-space: nowrap;
-    overflow: hidden;
+.name {
+    position: absolute; left: 23.6mm; right: 2mm; top: 9.4mm;
+    font-size: 19pt; line-height: 1.0; font-weight: 800; white-space: nowrap; overflow: hidden;
 }
+.name.s2 { font-size: 16pt; }
+.name.s3 { font-size: 13pt; }
+.name.s4 { font-size: 11pt; white-space: normal; line-height: 1.05; }
+.name.s5 { font-size: 9.5pt; white-space: normal; line-height: 1.1; }
 
-.level {
-    font-size: 8.5pt;
-    line-height: 1.15;
-    font-weight: 600;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
+.hint { position: absolute; left: 23.6mm; bottom: 2mm; font-size: 6pt; line-height: 1.15; font-weight: 700; }
 
-/* the name is anchored to the bottom edge and steps down as it gets longer, so it is never cut off */
-.bin {
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    font-size: 19pt;
-    line-height: 1.0;
-    font-weight: 800;
-    white-space: nowrap;
-    overflow: hidden;
-    border-top: 0.4mm solid #000;
-    padding-top: 0.8mm;
-}
-.bin.s2 { font-size: 16pt; }
-.bin.s3 { font-size: 13pt; }
-.bin.s4 { font-size: 10.5pt; }
-.bin.s5 { font-size: 10pt; line-height: 1.1; white-space: normal; }
-
-.mark {
-    position: absolute;
-    right: 0;
-    top: 0;
-    height: 7.5mm;
-}
+.mark { position: absolute; right: 2mm; bottom: 1.6mm; height: 7.5mm; }
 /* an owner's picture (the EV car, the PV house) sits beside the logo; the logo is on every label */
-.mark.owner { right: 8.2mm; height: 6mm; }
+.mark.owner { right: 9.6mm; height: 6mm; bottom: 2mm; }
 {% endblock style %}
 
 {% block content %}
+<div class='frame'></div>
+<div class='band'>{% for place in location.get_ancestors %}{{ place.name }}{% if not forloop.last %} / {% endif %}{% empty %}Storage{% endfor %}</div>
 
-<img class='qr' alt="{% trans 'QR code' %}" src='{% qrcode qr_data %}'>
+{% with pk=location.pk|stringformat:"s" %}{% with url="__APP_URL__/#loc/"|add:pk %}
+<img class='qr' alt="{% trans 'QR code' %}" src='{% qrcode url %}'>
+{% endwith %}{% endwith %}
 
-<div class='info'>
-    <div class='top'>
-        {% for place in location.get_ancestors %}{% if place.name|slice:":4"|lower == "room" %}
-        <div class='room'>{{ place.name }}</div>
-        {% endif %}{% endfor %}
-        {% for place in location.get_ancestors %}{% if place.name|slice:":4"|lower != "room" %}
-        <div class='level'>{{ place.name }}</div>
-        {% endif %}{% endfor %}
-    </div>
-    {% with n=location.name|length %}
-    <div class='bin{% if n > 13 %} s5{% elif n > 10 %} s4{% elif n > 8 %} s3{% elif n > 6 %} s2{% endif %}'>{{ location.name }}</div>
-    {% endwith %}
-    __MARK__
-</div>
-
+{% with n=location.name|length %}
+<div class='name{% if n > 22 %} s5{% elif n > 14 %} s4{% elif n > 9 %} s3{% elif n > 6 %} s2{% endif %}'>{{ location.name }}</div>
+{% endwith %}
+<div class='hint'>Scan to see<br>what is inside</div>
+__MARK__
 {% endblock content %}

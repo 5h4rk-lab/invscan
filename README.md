@@ -10,6 +10,10 @@ It is a small web app that sits next to InvenTree and talks to its API. Nothing 
 
 `python scripts/demo_server.py` serves the real pages with sample data (no InvenTree, DigiKey or PIN needed; nothing is saved), at http://127.0.0.1:8800. Handy for working on the design.
 
+## Cabinet labels and what is inside
+
+A cabinet, drawer or bin label looks different from an item label (black header band saying where it is, a framed edge, the name big) so the two are never confused. Its QR is a link to the app: scan it with the phone's own camera, or with the scanner here, and you see everything stored in it and in the places below it, with a breadcrumb, quantities and your notes. Scanning in the app also makes it the current bin. A part's location is a link to the same page. Set `INVSCAN_URL` before running `scripts/install_labels.py`; labels printed earlier still scan in the app.
+
 ## Pictures for Mouser parts
 
 Mouser's image server refuses downloads made by a script (it sends a bot-check page instead of the picture), so invscan never stores that page and, for a Mouser bag, uses DigiKey's photo of the same manufacturer part. A part with no picture anywhere gets one from `python scripts/backfill_images.py` (or a photo you take on its page).

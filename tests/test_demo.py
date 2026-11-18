@@ -20,3 +20,10 @@ def test_demo_serves_the_page_and_the_shapes_the_screens_read():
 def test_demo_never_saves_anything():
     r = c.post("/api/part/new", json={"name": "x"})
     assert r.status_code == 422 and "demo" in r.json()["detail"]
+
+
+def test_demo_place_page_lists_what_is_inside_and_below():
+    cab = next(i for i in range(1, 30) if c.get(f"/api/location/{i}").json()["name"] == "Cabinet #3")
+    d = c.get(f"/api/location/{cab}").json()
+    assert {p["name"] for p in d["parts"]} >= {"MC9S08PA60AVLF", "S9S12G192F0VLH", "ERA-8AHD150V"}  # parts in its drawers count
+    assert [a["name"] for a in d["ancestors"]] == ["Room 127"] and {k["name"] for k in d["children"]} == {"Drawer 1", "Drawer 2"}

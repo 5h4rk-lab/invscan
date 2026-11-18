@@ -372,3 +372,7 @@ mark{background:var(--gold-soft);color:inherit;border-radius:3px;padding:0 1px;b
 .seg{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;border-radius:12px;background:var(--sunk);border:1px solid var(--line)}
 .seg button{border:0;background:none;border-radius:9px;padding:8px 10px;font-weight:600;font-size:14px;color:var(--muted);cursor:pointer;transition:background .14s,color .14s,box-shadow .14s}
 .seg button.on{background:var(--surface);color:var(--ink);box-shadow:var(--sh-1),0 0 0 1px var(--line2)}
+
+/* a place page; a place shown as a link */
+.locname{font-size:30px;margin:0 0 4px}
+a.tag.link{text-decoration:none;color:var(--ink2);transition:border-color .12s,background .12s} a.tag.link:hover{border-color:var(--blue);background:var(--blue-soft)}

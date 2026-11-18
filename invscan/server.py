@@ -17,7 +17,7 @@ from .client import InvenTree
 from .digikey import DigiKey
 from .mouser import MOUSER_PN, Mouser, mpn_from_pn
 from .ingest import add_manual, elsewhere, find_part, ingest
-from .locations import LABEL_PREFIX, add_room, ensure_path, has_room, parse_label, place_path
+from .locations import LABEL_PREFIX, add_room, ensure_path, has_room, location_contents, parse_label, place_path
 from .notes import get_note, set_note
 from .ocr import extract, find_parts
 from .organise import organise
@@ -173,7 +173,7 @@ def unplaced_id() -> int | None:
 
 def _where(s: dict) -> dict:
     loc = (s.get("location_detail") or {}).get("pathstring") or "No location"
-    return {"stock_id": s["pk"], "path": loc, "qty": s["quantity"], "note": get_note(s.get("notes")),
+    return {"stock_id": s["pk"], "path": loc, "location_id": s.get("location"), "qty": s["quantity"], "note": get_note(s.get("notes")),
             "unplaced": loc == "Unplaced"}
 
 
@@ -227,8 +227,8 @@ def home():
 
 @app.get("/api/location/{pk}", dependencies=[Depends(auth)])
 def location(pk: int):
-    l = inv().get(f"stock/location/{pk}/")
-    return {"id": l["pk"], "path": l["pathstring"]}
+    """A place and everything stored in it (and below it): what a cabinet label's QR opens."""
+    return location_contents(inv(), pk)
 
 
 @app.post("/api/bin", dependencies=[Depends(auth)])

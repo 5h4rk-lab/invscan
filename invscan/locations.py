@@ -2,6 +2,8 @@
 
 import re
 
+from .notes import get_note
+
 LABEL_PREFIX = "INVSCAN:LOC:"
 
 
@@ -27,13 +29,43 @@ def ensure_path(inv, path: str) -> int:
 _INVENTREE_LOC = re.compile(r"^INV-SL(\d+)$")  # InvenTree's own short barcode for a stock location
 
 
+_APP_LINK = re.compile(r"#loc/(\d+)\s*$")  # a cabinet label's QR is a link to the app: https://.../#loc/21
+
+
 def parse_label(text: str) -> int | None:
-    """Location id from an invscan bin label or an InvenTree-printed location label, else None."""
+    """Location id from an invscan bin label (old text form or the app link) or an InvenTree-printed location label, else None."""
     t = text.strip()
     if t.startswith(LABEL_PREFIX) and t[len(LABEL_PREFIX):].isdigit():
         return int(t[len(LABEL_PREFIX):])
-    m = _INVENTREE_LOC.match(t)
+    m = _INVENTREE_LOC.match(t) or (_APP_LINK.search(t) if t.lower().startswith("http") else None)
     return int(m.group(1)) if m else None
+
+
+def location_contents(inv, pk: int) -> dict:
+    """What is in a place: its sub-places, and every part stored there or below it, grouped by part."""
+    loc = inv.get(f"stock/location/{pk}/")
+    stock = inv.list("stock/", location=pk, cascade="true", in_stock="true", part_detail="true", location_detail="true", limit=1000)
+    parts: dict[int, dict] = {}
+    for s in stock:
+        if not s.get("quantity"):
+            continue
+        pd = s.get("part_detail") or {}
+        e = parts.setdefault(s["part"], {"part_id": s["part"], "name": pd.get("name", "?"), "description": pd.get("description", ""),
+                                         "thumbnail": pd.get("thumbnail"), "total": 0, "lines": []})
+        e["total"] += s["quantity"]
+        path = (s.get("location_detail") or {}).get("pathstring") or loc["pathstring"]
+        e["lines"].append({"stock_id": s["pk"], "path": path, "location_id": s.get("location"), "qty": s["quantity"],
+                           "note": get_note(s.get("notes")), "here": s.get("location") == pk})
+    kids = [{"id": c["pk"], "name": c["name"], "path": c["pathstring"], "items": c.get("items") or 0,
+             "places": c.get("sublocations") or 0} for c in inv.list("stock/location/", parent=pk, limit=500)]
+    ancestors, up = [], loc.get("parent")
+    while up and len(ancestors) < 8:  # the detail response has no ancestor list, so walk up the tree
+        a = inv.get(f"stock/location/{up}/")
+        ancestors.insert(0, {"id": a["pk"], "name": a["name"]})
+        up = a.get("parent")
+    return {"id": pk, "name": loc["name"], "path": loc["pathstring"], "ancestors": ancestors,
+            "children": sorted(kids, key=lambda k: k["name"].lower()),
+            "parts": sorted(parts.values(), key=lambda p: p["name"].lower()), "lines": sum(len(p["lines"]) for p in parts.values())}
 
 
 def normalize_room(text: str) -> str:

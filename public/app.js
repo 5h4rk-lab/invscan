@@ -21,7 +21,7 @@ async function api(path, body, retry = true) {
   return j;
 }
 const img = (u, n) => u ? `<img class="thumb" src="${esc(u)}" alt="" loading="lazy">` : `<div class="thumb empty">${esc((n || "?").slice(0, 3))}</div>`;
-const tag = (path, unplaced) => `<span class="tag${unplaced ? " warn" : ""}" title="${esc(path)}">${esc(path).split("/").map(s => s.replace(/ /g, "&nbsp;")).join("/&#8203;")}</span>`;  // lines break only after a slash
+const tag = (path, unplaced, id) => `<${id ? `a href="#loc/${id}"` : "span"} class="tag${unplaced ? " warn" : ""}${id ? " link" : ""}" title="${esc(path)}">${esc(path).split("/").map(s => s.replace(/ /g, "&nbsp;")).join("/&#8203;")}</${id ? "a" : "span"}>`;  // lines break only after a slash
 const safeUrl = u => /^https?:\/\//i.test(u || "") ? u : "";
 const plink = (id, html, cls = "") => `<a class="${cls}" href="#part/${id}">${html}</a>`;
 const CHECK = '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>', WARN = '<svg viewBox="0 0 24 24"><path d="M12 7v6M12 17h.01"/></svg>', CROSS = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
@@ -55,7 +55,7 @@ function qtySheet(id, name, val, after) {
   $("#sheetForm").querySelectorAll("[data-d]").forEach(b => b.onclick = () => { i.value = Math.max(0, (+i.value || 0) + +b.dataset.d); });
   i.select();
 }
-function refresh() { state.view === "find" ? runFind() : state.view === "home" ? loadHome() : state.view === "part" ? loadPart(state.partId) : state.view === "cat" ? loadCat(state.catId) : 0; }
+function refresh() { state.view === "loc" ? loadLoc(state.locId) : state.view === "find" ? runFind() : state.view === "home" ? loadHome() : state.view === "part" ? loadPart(state.partId) : state.view === "cat" ? loadCat(state.catId) : 0; }
 document.addEventListener("click", e => {
   const b = e.target.closest("[data-qty]"); if (!b) return;
   qtySheet(+b.dataset.id, b.dataset.name, b.dataset.val, b.dataset.after ? r => { b.textContent = r.qty; b.dataset.val = r.qty; } : null);
@@ -212,7 +212,7 @@ function renderBin() {
   if (state.bin) {
     b.className = "binbar on";
     b.innerHTML = `<div class="binhead"><small>Putting bags in</small>${tag(state.bin.path)}</div>
-      <div class="binacts">${hasRoom(state.bin.path) ? "" : '<button class="btn sm" data-room>Add room</button>'}<button class="btn sm" data-print>Print bin label</button><button class="btn sm" data-bin>Change</button></div>`;
+      <div class="binacts">${hasRoom(state.bin.path) ? "" : '<button class="btn sm" data-room>Add room</button>'}<a class="btn sm" href="#loc/${state.bin.id}">What is inside</a><button class="btn sm" data-print>Print bin label</button><button class="btn sm" data-bin>Change</button></div>`;
   } else {
     b.className = "binbar note";
     b.innerHTML = `<div class="binhead"><b>No bin set</b><small>Scan a bin label, or write a note about where each bag goes.</small></div>
@@ -300,7 +300,12 @@ async function sendBag(raw, note, extra = {}) {
     const r = await api("/api/scan", { raw, location_id: state.bin?.id ?? null, qty: +$("#qty").value || null, note: note || null, mouser_pn: extra.mouser_pn || null });
     if (r.kind === "need_pn") { state.busy = false; return mouserSheet(raw, note); }
     if (r.kind === "part") { location.hash = "#part/" + r.part_id; }
-    else if (r.kind === "bin") { setBin(r); card("", `<div>Bin set</div>${tag(r.path)}`); toast("Bin set"); }
+    else if (r.kind === "bin") {
+      setBin({ id: r.id, path: r.path });
+      const n = r.parts.length;
+      card("", `<div>Bin set</div>${tag(r.path)}<div class="sm muted" style="margin:6px 0">${n ? `${n} ${n === 1 ? "part is" : "parts are"} stored here` : "Nothing stored here yet"}${r.children.length ? `, and ${r.children.length} places inside it` : ""}</div><a class="btn sm" href="#loc/${r.id}">See what is inside</a>`);
+      toast("Bin set");
+    }
     else if (r.status === "created") {
       showResult("ok", r.new_part ? "Added to inventory (new part)" : "Added to inventory", r, r.message ? esc(r.message) : "");
       card("", `<div class="name">${esc(r.name)}</div><div class="sm muted">Added ${esc(r.qty)} to ${esc(r.path || "")}</div>`, r.thumbnail);
@@ -811,7 +816,7 @@ async function loadPart(id) {
      ${d.template ? `<p class="sm muted" style="margin-top:10px">A configuration of <a href="#part/${d.template.id}">${esc(d.template.name)}</a></p>` : ""}
      ${d.variants.length ? `<h2>Configurations <small>${d.variants.length}</small></h2><div class="list">${d.variants.map(v => `<a class="line" href="#part/${v.id}" style="display:flex;justify-content:space-between;text-decoration:none;color:inherit"><b>${esc(v.name.slice(d.name.length).trim() || v.name)}</b><span class="muted">${esc(v.stock)} in stock</span></a>`).join("")}</div>` : ""}
      <h2>Where it is <small>${d.stock.length} ${d.stock.length === 1 ? "line" : "lines"}</small></h2>
-     <div class="list">${d.stock.length ? d.stock.map(s => `<div class="line"><div class="top2">${tag(s.path, s.unplaced)}<span class="sm muted">quantity ${qbtn(s.stock_id, d.name, s.qty)}</span></div>
+     <div class="list">${d.stock.length ? d.stock.map(s => `<div class="line"><div class="top2">${tag(s.path, s.unplaced, s.unplaced ? 0 : s.location_id)}<span class="sm muted">quantity ${qbtn(s.stock_id, d.name, s.qty)}</span></div>
         ${s.note ? `<div class="note" style="margin:0">${esc(s.note)}</div>` : ""}
         ${s.details ? `<div class="sm muted">${esc(s.details)}</div>` : ""}<div class="sm muted">Added ${esc(s.date)}${s.batch ? ` &nbsp;<span class="mono">${esc(s.batch)}</span>` : ""}</div>
         <div class="rowacts"><button class="btn sm" data-place="${s.stock_id}" data-n="${esc(d.name)}" data-note="${esc(s.note)}">Move or edit note</button><button class="btn sm" data-printstock="${s.stock_id}">Print item label</button></div></div>`).join("") : '<div class="empty-state">No stock on hand.</div>'}</div>
@@ -839,19 +844,44 @@ async function loadPart(id) {
 }
 function goBack() { history.length > 1 ? history.back() : (location.hash = "#find"); }
 
+/* ---------- a place: what is stored in a cabinet, drawer or bin ---------- */
+async function loadLoc(id) {
+  const box = $("#locBody");
+  box.innerHTML = `<button class="back" id="back"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>Back</button><div class="card"><div class="sk" style="width:50%;height:22px"></div><div class="sk" style="width:80%;margin-top:12px"></div></div>`;
+  $("#back").onclick = goBack;
+  try {
+    const d = await api("/api/location/" + id), n = d.parts.length;
+    const crumbs = [...d.ancestors.map(a => `<a href="#loc/${a.id}">${esc(a.name)}</a>`), `<b>${esc(d.name)}</b>`].join('<span class="sep">/</span>');
+    box.innerHTML = `<button class="back" id="back"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>Back</button>
+      <div class="crumbs">${crumbs}</div><h1 class="locname">${esc(d.name)}</h1>
+      <div class="facts"><div><small>Parts here</small><b>${n}</b></div><div><small>Stock lines</small><b>${d.lines}</b></div><div><small>Places inside</small><b>${d.children.length}</b></div></div>
+      <div class="actions2"><button class="btn primary" id="useBin">Put bags here</button><button class="btn" id="printLoc">Print label</button></div>
+      ${d.children.length ? `<h2>Inside <small>${d.children.length}</small></h2><div class="tiles">${d.children.map(c => `<a class="ctile" href="#loc/${c.id}"><span class="stack"><i class="glyph">${esc(c.name.slice(0, 1))}</i></span><span class="n">${esc(c.items)}</span><b>${esc(c.name)}</b><small>${c.items ? `${esc(c.items)} stock ${c.items === 1 ? "line" : "lines"}` : "Empty"}</small></a>`).join("")}</div>` : ""}
+      <h2>Parts here <small>${n}</small></h2>
+      ${n ? `<div class="list">${d.parts.map(p => `<a class="row frow" href="#part/${p.part_id}" data-peek="${p.part_id}">${img(p.thumbnail, p.name)}<div class="body"><div class="name">${esc(p.name)}</div>${p.description ? `<div class="desc">${esc(p.description)}</div>` : ""}
+          <div class="meta">${p.lines.filter(l => !l.here).slice(0, 2).map(l => tag(l.path.startsWith(d.path + "/") ? l.path.slice(d.path.length + 1) : l.path)).join("")}</div>
+          ${p.lines.find(l => l.note) ? `<div class="note">${esc(p.lines.find(l => l.note).note)}</div>` : ""}</div><div class="qty">${esc(p.total)}<small>here</small></div></a>`).join("")}</div>`
+        : `<div class="list"><div class="empty-state">Nothing is stored here yet.${d.children.length ? " Look inside the places above." : ""}</div></div>`}`;
+    $("#back").onclick = goBack;
+    $("#useBin").onclick = () => { setBin({ id: d.id, path: d.path }); location.hash = "#scan"; toast("Putting bags in " + d.name); };
+    $("#printLoc").onclick = () => printSheet("stocklocation", [d.id], d.path);
+  } catch (e) { box.innerHTML = `<button class="back" id="back">Back</button><div class="card">Could not load this place: ${esc(e.message)}</div>`; $("#back").onclick = goBack; }
+}
+
 /* ---------- router ---------- */
 function route() {
   const h = location.hash.slice(1); let v = "home", arg = null;
   if (h.startsWith("part/") && +h.slice(5)) { v = "part"; arg = +h.slice(5); }
   else if (h.startsWith("cat/") && +h.slice(4)) { v = "cat"; arg = +h.slice(4); }
+  else if (h.startsWith("loc/") && +h.slice(4)) { v = "loc"; arg = +h.slice(4); }
   else if (["home", "scan", "find"].includes(h)) v = h;
   const key = v + ":" + (arg ?? ""); if (key === state.key) return;
-  state.key = key; state.view = v; state.partId = arg; state.catId = arg;
+  state.key = key; state.view = v; state.partId = arg; state.catId = arg; state.locId = arg;
   if (v === "cat" && state.cat.id !== arg) state.cat = { id: arg, q: "", sort: "relevance", f: {} };
-  for (const n of ["home", "scan", "find", "part", "cat"]) {
+  for (const n of ["home", "scan", "find", "part", "cat", "loc"]) {
     const s = $("#v-" + n); s.hidden = n !== v; if (n === v) { s.classList.remove("in"); void s.offsetWidth; s.classList.add("in"); }
   }
-  document.querySelectorAll(".tabs a").forEach(a => a.dataset.v === (v === "cat" ? "find" : v) ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"));
+  document.querySelectorAll(".tabs a").forEach(a => a.dataset.v === (v === "cat" || v === "loc" ? "find" : v) ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"));
   v === "scan" ? startCam() : stopCam();
   document.body.classList.toggle("has-tree", v === "find" || v === "cat");
   if (v === "find" || v === "cat") (state.cats.length ? Promise.resolve() : loadCats()).then(renderTrees).catch(() => {});
@@ -859,6 +889,7 @@ function route() {
   if (hero && typeof hero === "object") hero.setActive(v === "home");
   if (v === "find") { runFind(); $("#q").focus({ preventScroll: true }); }
   if (v === "part") loadPart(arg);
+  if (v === "loc") loadLoc(arg);
   if (v === "cat") loadCat(arg);
   window.scrollTo(0, 0);
 }

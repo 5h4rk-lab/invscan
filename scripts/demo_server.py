@@ -39,6 +39,15 @@ PARTS = {  # id: name, description, category id, kind (thumbnail), specs, stock 
     11: ("Dell Latitude laptop", "Spare laptop, charger in the bag", 13, "box", [], [("Unplaced", 1, "Bottom shelf of the grey rack, behind the printer")]),
 }
 INK, COPPER = "#0E4B3C", "#D08A3E"
+LOCS: dict[int, str] = {}  # id -> path, for every place that holds stock and every place above it
+for _p in PARTS.values():
+    for _path, *_ in _p[5]:
+        _segs = _path.split("/")
+        for _i in range(1, len(_segs) + 1):
+            _pp = "/".join(_segs[:_i])
+            if _pp not in LOCS.values():
+                LOCS[len(LOCS) + 1] = _pp
+LOC_ID = {v: k for k, v in LOCS.items()}
 
 
 def icon(kind: str) -> str:
@@ -71,7 +80,7 @@ def row(pid):
 
 
 def where(pid):
-    return [{"stock_id": pid * 10 + i, "path": p, "qty": q, "note": nt, "unplaced": p == "Unplaced"} for i, (p, q, nt) in enumerate(PARTS[pid][5])]
+    return [{"stock_id": pid * 10 + i, "path": p, "location_id": LOC_ID.get(p), "qty": q, "note": nt, "unplaced": p == "Unplaced"} for i, (p, q, nt) in enumerate(PARTS[pid][5])]
 
 
 def under(cat, root):
@@ -149,7 +158,19 @@ def peek_category(pk: int):
 
 @app.get("/api/location/{pk}")
 def location(pk: int):
-    return {"id": pk, "path": BIN}
+    path = LOCS.get(pk, "Room 127")
+    inside = lambda p: p == path or p.startswith(path + "/")
+    parts = []
+    for pid, v in PARTS.items():
+        lines = [{"stock_id": pid * 10 + i, "path": p, "location_id": LOC_ID.get(p), "qty": q, "note": nt, "here": p == path}
+                 for i, (p, q, nt) in enumerate(v[5]) if inside(p)]
+        if lines:
+            parts.append({"part_id": pid, "name": v[0], "description": v[1], "thumbnail": thumb(pid), "total": sum(l["qty"] for l in lines), "lines": lines})
+    kids = [{"id": i, "name": p.split("/")[-1], "path": p, "items": sum(1 for v in PARTS.values() for q in v[5] if q[0] == p or q[0].startswith(p + "/")), "places": 0}
+            for i, p in LOCS.items() if p.rsplit("/", 1)[0] == path and "/" in p]
+    segs = path.split("/")
+    return {"id": pk, "name": segs[-1], "path": path, "ancestors": [{"id": LOC_ID["/".join(segs[:i])], "name": segs[i - 1]} for i in range(1, len(segs))],
+            "children": sorted(kids, key=lambda k: k["name"]), "parts": parts, "lines": sum(len(p["lines"]) for p in parts)}
 
 
 @app.get("/api/supplies")
