@@ -78,7 +78,7 @@ def test_nothing_found_gives_an_empty_list():
 
 
 def test_dates_are_never_part_numbers_even_when_misread():
-    for d in ("06NOV26", "O6NOV26", "06-NOV-2026", "06N0V26", "NOV-06-26", "I5DEC2025"):
+    for d in ("06NOV26", "O6NOV26", "06-NOV-2026", "06N0V26", "NOV-06-26", "I5DEC2025", "29-0CT", "29-OCT", "29OCT", "OCT-29", "0CT29"):
         e = extract(f"SEALED DATE {d}\nSEALED DATE {d}\nSEALED DATE {d}\n(30P) TYPE LM358DR\n")
         assert d.upper() not in e.queries and e.queries[0] == "LM358DR", d
     e = extract("O6NOV26 O6NOV26 O6NOV26\nSTM32F103C8T6\n")  # no caption at all: still not chosen over the real part

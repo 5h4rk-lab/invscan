@@ -20,13 +20,15 @@ NOT_PART = {"DATE", "SEALED", "LOT", "PUID", "QTY", "QUANTITY", "ORIG", "PMC", "
 
 
 def _is_date(tok: str) -> bool:
-    """06NOV26, 06-NOV-2026, NOV-06-26 and the same with OCR slips (O for 0, I for 1)."""
-    t = tok.upper()
-    m = re.fullmatch(r"([0-9OIL]{1,2})[-/. ]?([A-Z0]{3})[-/. ]?([0-9OIL]{2,4})", t)
-    if m and m.group(2).replace("0", "O") in MONTHS:
-        return True
-    m = re.fullmatch(r"([A-Z0]{3})[-/. ]?([0-9OIL]{1,2})[-/. ,]*([0-9OIL]{2,4})", t)
-    return bool(m and m.group(1).replace("0", "O") in MONTHS)
+    """06NOV26, 06-NOV-2026, 29-OCT, NOV-06-26 and the same with OCR slips (O for 0, I for 1); the year is optional."""
+    t = tok.upper().strip(".,;:")
+    for pat in (r"([0-9OIL]{1,2})[-/. ]?([A-Z0]{3})(?:[-/. ,]?([0-9OIL]{2,4}))?", r"([A-Z0]{3})[-/. ]?([0-9OIL]{1,2})(?:[-/. ,]*([0-9OIL]{2,4}))?"):
+        m = re.fullmatch(pat, t)
+        if m:
+            month = m.group(2) if pat.startswith("([0-9") else m.group(1)
+            if month.replace("0", "O") in MONTHS:
+                return True
+    return False
 
 
 @dataclass
@@ -130,7 +132,7 @@ def extract(text: str) -> Extracted:
             if re.sub(r"[^A-Z0-9/]", "", w) in NOT_PART:
                 skip.update(_clean(x) for x in words[i + 1:i + 3])
     for tok in map(_clean, _TOKEN.findall(up.replace("$", "S"))):
-        if _plausible(tok) and tok not in skip:
+        if _plausible(tok) and tok not in skip and not digikey_numbers(tok):
             seen[tok] += 1
     ex.labelled = list(dict.fromkeys(labelled))
     ex.generic = [t for t in sorted(seen, key=lambda t: -(_shape(t) + min(seen[t], 3))) if t not in ex.labelled and t != ex.lot]
