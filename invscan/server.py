@@ -311,7 +311,7 @@ def ocr(body: OcrIn):
     ex = extract(body.text[:20000])
     term = (body.term or "").strip()
     queries = [term] if term else ex.queries
-    results = find_parts(dk(), queries, None if term else ex.dk_pn) if dk().enabled else []
+    results = find_parts(dk(), queries, None if term else ex.dk_pn, min_score=0.0 if term else 0.55) if dk().enabled else []  # a typed search shows everything; OCR guesses only if they resemble what was read
     return {"qty": ex.qty, "lot": ex.lot, "date_code": ex.date_code, "queries": queries, "results": results,
             "digikey": dk().enabled}
 

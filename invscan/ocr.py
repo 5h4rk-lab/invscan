@@ -13,7 +13,20 @@ LABELS = {"1P", "30P", "MPN", "P/N", "PN", "TYPE", "PART", "PARTNO", "PARTNUMBER
 STOP = {"TYPE", "CODENO", "PART", "NO", "NUMBER", "QTY", "LOT", "DATE", "COUNTRY", "ORIG", "HALOGEN", "COMPLIANT", "ROHS",
         "SEMICONDUCTORS", "ASSEMBLY", "DIFFUSION", "SEALED", "UNITED", "STATES", "CHINA", "MALAYSIA", "TAIWAN", "PUID"}
 _TOKEN = re.compile(r"[A-Z0-9$][A-Z0-9$._/+\-]{3,29}")
-_DATE = re.compile(r"^\d{1,2}[A-Z]{3}\d{2,4}$")  # 06NOV26
+MONTHS = "JAN FEB MAR APR MAY JUN JUL AUG SEP OCT NOV DEC".split()
+# captions whose value is never the part number: the next word or two after them are dates, lot codes, bag ids...
+NOT_PART = {"DATE", "SEALED", "LOT", "PUID", "QTY", "QUANTITY", "ORIG", "PMC", "MSL", "MSL/PBT", "COUNTRY", "CODE", "DC", "D/C",
+            "EXP", "EXPIRES", "MFG", "MFD", "PKG", "PACKED", "INVOICE", "ORDER", "PO", "SO", "BATCH", "SERIAL", "SN", "WEIGHT"}
+
+
+def _is_date(tok: str) -> bool:
+    """06NOV26, 06-NOV-2026, NOV-06-26 and the same with OCR slips (O for 0, I for 1)."""
+    t = tok.upper()
+    m = re.fullmatch(r"([0-9OIL]{1,2})[-/. ]?([A-Z0]{3})[-/. ]?([0-9OIL]{2,4})", t)
+    if m and m.group(2).replace("0", "O") in MONTHS:
+        return True
+    m = re.fullmatch(r"([A-Z0]{3})[-/. ]?([0-9OIL]{1,2})[-/. ,]*([0-9OIL]{2,4})", t)
+    return bool(m and m.group(1).replace("0", "O") in MONTHS)
 
 
 @dataclass
@@ -58,7 +71,13 @@ def similarity(a: str, b: str) -> float:
 
 def _plausible(tok: str) -> bool:
     return (6 <= len(tok) <= 30 and any(c.isalpha() for c in tok) and any(c.isdigit() for c in tok)
-            and tok not in STOP and not _DATE.match(tok) and not DK_PN.match(tok))
+            and tok not in STOP and not _is_date(tok) and not DK_PN.match(tok))
+
+
+def _shape(tok: str) -> float:
+    """How much a token looks like a manufacturer part number: letters and digits mixed, a usable length."""
+    letters, digits = sum(c.isalpha() for c in tok), sum(c.isdigit() for c in tok)
+    return (1.0 if min(letters, digits) >= 2 else 0.0) + (1.0 if 8 <= len(tok) <= 20 else 0.0) + (0.5 if letters >= 3 else 0.0)
 
 
 def extract(text: str) -> Extracted:
@@ -87,11 +106,17 @@ def extract(text: str) -> Extracted:
                     if _TOKEN.fullmatch(tok) and _plausible(tok):
                         labelled.append(tok)
                     break
+    skip = set()
+    for line in up.replace("$", "S").splitlines():
+        words = line.split()
+        for i, w in enumerate(words):
+            if re.sub(r"[^A-Z0-9/]", "", w) in NOT_PART:
+                skip.update(_clean(x) for x in words[i + 1:i + 3])
     for tok in map(_clean, _TOKEN.findall(up.replace("$", "S"))):
-        if _plausible(tok):
+        if _plausible(tok) and tok not in skip:
             seen[tok] += 1
     ex.labelled = list(dict.fromkeys(labelled))
-    ex.generic = [t for t, _ in seen.most_common() if t not in ex.labelled and t != ex.lot]
+    ex.generic = [t for t in sorted(seen, key=lambda t: -(_shape(t) + min(seen[t], 3))) if t not in ex.labelled and t != ex.lot]
     queries = ([ex.dk_pn] if ex.dk_pn else [])
     for t in ex.labelled[:2]:
         queries += variants(t)
@@ -108,7 +133,7 @@ def _card(p: dict) -> dict:
             "dk_pn": vs[0]["DigiKeyProductNumber"] if vs else ""}
 
 
-def find_parts(dk, queries: list[str], dk_pn: str | None = None, limit: int = 8) -> list[dict]:
+def find_parts(dk, queries: list[str], dk_pn: str | None = None, limit: int = 8, min_score: float = 0.0) -> list[dict]:
     """DigiKey parts that match what the OCR read, closest first. Stops early once a query matches a part number exactly."""
     found: dict[tuple, dict] = {}
 
@@ -133,4 +158,4 @@ def find_parts(dk, queries: list[str], dk_pn: str | None = None, limit: int = 8)
             add(p, s)
         if best >= 0.97:
             break
-    return sorted(found.values(), key=lambda c: -c["score"])[:limit]
+    return sorted((c for c in found.values() if c["score"] >= min_score), key=lambda c: -c["score"])[:limit]

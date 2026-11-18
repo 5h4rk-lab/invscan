@@ -75,3 +75,22 @@ def test_digikey_part_number_is_looked_up_directly():
 
 def test_nothing_found_gives_an_empty_list():
     assert find_parts(DK({}), ["ABC123X"]) == []
+
+
+def test_dates_are_never_part_numbers_even_when_misread():
+    for d in ("06NOV26", "O6NOV26", "06-NOV-2026", "06N0V26", "NOV-06-26", "I5DEC2025"):
+        e = extract(f"SEALED DATE {d}\nSEALED DATE {d}\nSEALED DATE {d}\n(30P) TYPE LM358DR\n")
+        assert d.upper() not in e.queries and e.queries[0] == "LM358DR", d
+    e = extract("O6NOV26 O6NOV26 O6NOV26\nSTM32F103C8T6\n")  # no caption at all: still not chosen over the real part
+    assert e.generic[0] == "STM32F103C8T6" and "O6NOV26" not in e.generic
+
+
+def test_words_after_date_lot_and_bag_captions_are_skipped():
+    e = extract("LOT AB12CD34\nDATE 2230X9\nPUID 02CTNJ2301EV000\nTYPE MC9S08PA60AVLF\nMSL/PBT 3/260")
+    assert e.labelled == ["MC9S08PA60AVLF"] and not {"AB12CD34", "02CTNJ2301EV000"} & set(e.generic)
+
+
+def test_weak_matches_are_hidden_for_ocr_but_not_for_typed_searches():
+    dk = DK({"ZZ9999XX": [prod("LM358DR")]})
+    assert find_parts(dk, ["ZZ9999XX"], min_score=0.55) == []
+    assert [c["mpn"] for c in find_parts(dk, ["ZZ9999XX"])] == ["LM358DR"]
