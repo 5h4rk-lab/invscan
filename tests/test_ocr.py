@@ -151,7 +151,7 @@ def test_fuzz_tries_single_fixes_before_pairs_and_fixes_the_real_case():
     v = fuzz("ERA-BAHD150V", 8)
     assert v[0] == "ERA-8AHD150V" and "ERA-BAHD150V" not in v and all(len(x) == 12 for x in v)
     assert "P15BQCT" in fuzz("P19B0CT", 40)  # 9->5 and 0->Q together
-    assert len(fuzz("ZZZ", 5)) == 5 and fuzz("LM", 5) == []
+    assert len(fuzz("ZZZ", 5)) == 5 and fuzz("MM", 5) == []
 
 
 def test_old_label_finds_the_resistor_and_keeps_the_packaging_printed_on_it():
