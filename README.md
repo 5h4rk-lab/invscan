@@ -10,6 +10,10 @@ It is a small web app that sits next to InvenTree and talks to its API. Nothing 
 
 `python scripts/demo_server.py` serves the real pages with sample data (no InvenTree, DigiKey or PIN needed; nothing is saved), at http://127.0.0.1:8800. Handy for working on the design.
 
+## Pictures for Mouser parts
+
+Mouser's image server refuses downloads made by a script (it sends a bot-check page instead of the picture), so invscan never stores that page and, for a Mouser bag, uses DigiKey's photo of the same manufacturer part. A part with no picture anywhere gets one from `python scripts/backfill_images.py` (or a photo you take on its page).
+
 ## Your own logo
 
 Without any setup the app shows a small generic hen. To use your own logo, drop these in (they are git-ignored, so they are never committed):

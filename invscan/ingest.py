@@ -4,7 +4,7 @@ from datetime import date
 
 from .categories import digikey_path, ensure_category_path, misc_category
 from .digikey import _norm
-from .enrich import add_supplier_part, enrich_part, ensure_manufacturer_part
+from .enrich import add_supplier_part, enrich_part, ensure_manufacturer_part, set_image
 from .locations import ensure_path
 from .notes import set_note
 from .params import mark_scanned
@@ -136,6 +136,11 @@ def ingest(inv, scan: Scan, location_id: int | None, qty: int | None = None, dk=
         res = enrich_part(inv, part_id, product, supplier="Mouser" if from_mouser else "Digi-Key",
                           variations=not (mouser_label or nxp_label) or from_mouser)
         skus, mp_id = res["supplier_parts"], res["manufacturer_part"]
+        if from_mouser and dk and not inv.get(f"part/{part_id}/").get("image"):
+            # Mouser's image server refuses scripted downloads; DigiKey has a photo of the same manufacturer part
+            alt = dk.lookup(scan.mpn, None, product["Manufacturer"]["Name"])
+            if alt and alt.get("PhotoUrl"):
+                set_image(inv, part_id, scan.mpn, alt["PhotoUrl"])
         if scan.supplier_sku in skus:
             supplier_part = skus[scan.supplier_sku]
         elif len(skus) == 1 and not (mouser_label or nxp_label):

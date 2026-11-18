@@ -27,28 +27,25 @@ DESIGNS = [
 ]
 
 
-def _img(path: Path) -> str:
-    return f'<img class="mark" alt="" src="data:image/png;base64,{base64.b64encode(path.read_bytes()).decode()}">'
+def _img(path: Path, cls: str = "mark") -> str:
+    return f'<img class="{cls}" alt="" src="data:image/png;base64,{base64.b64encode(path.read_bytes()).decode()}">'
 
 
 def mark_block(owner_expr: str | None) -> str:
-    """Small corner mark: a per-owner picture when MARKS has owner_<NAME>.png (name as shown by InvenTree, e.g.
-    owner_EV.png for the user 'EV'), otherwise the default hen. Owners without a picture get the default."""
-    hen = MARKS / "logo.png" if (MARKS / "logo.png").exists() else MARKS / "hen.png"  # your own logo (kept out of git) wins over the generic hen
-    default = _img(hen) if hen.exists() else ""
+    """The corner marks: always the logo (MARKS/logo.png if you have one, else the generic hen), and, when MARKS has
+    owner_<NAME>.png (name as shown by InvenTree, e.g. owner_EV.png for the user 'EV'), that owner's picture beside it."""
+    logo = MARKS / "logo.png" if (MARKS / "logo.png").exists() else MARKS / "hen.png"
+    out = _img(logo) if logo.exists() else ""
     if not owner_expr:
-        return default
+        return out
     branches = []
     for f in sorted(MARKS.glob("owner_*.png")):
         stem = f.stem[len("owner_"):]
         label = stem[:-len("_group")] + " (group)" if stem.endswith("_group") else stem + " (user)"
-        branches.append((label, _img(f)))
-    if not branches:
-        return default
-    out = ""
+        branches.append((label, _img(f, "mark owner")))
     for i, (label, tag) in enumerate(branches):
         out += ("{% if " if i == 0 else "{% elif ") + f'{owner_expr}|stringformat:"s" == "{label}" %}}' + tag
-    return out + "{% else %}" + default + "{% endif %}"
+    return out + ("{% endif %}" if branches else "")
 
 
 def main() -> int:

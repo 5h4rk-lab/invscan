@@ -25,6 +25,36 @@ def pick_description(product: dict) -> str:
     return (long if len(short) >= 32 and long else short)[:250]
 
 
+def fetch_image(url: str) -> tuple[bytes, str] | None:
+    """(bytes, file extension) of the picture at url, or None when it is not really a picture. Some sites, Mouser's
+    among them, answer 'OK' with a bot-check web page when a script downloads an image; that is never stored, and we
+    do not try to get around it."""
+    if not url or not url.startswith("http"):
+        return None
+    try:
+        r = requests.get(url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
+    except requests.RequestException:
+        return None
+    if not r.ok:
+        return None
+    for magic, ext in ((b"\xff\xd8\xff", "jpg"), (b"\x89PNG\r\n\x1a\n", "png"), (b"GIF8", "gif")):
+        if r.content.startswith(magic):
+            return r.content, ext
+    return None
+
+
+def set_image(inv, part_id: int, name: str, url: str) -> bool:
+    """Give the part this picture if it can be fetched and InvenTree accepts it. True when it worked."""
+    got = fetch_image(url)
+    if not got:
+        return False
+    try:
+        inv.patch_file(f"part/{part_id}/", "image", f"{name}.{got[1]}", got[0])
+    except RuntimeError:
+        return False
+    return True
+
+
 def ensure_manufacturer_part(inv, part_id: int, manufacturer: str, mpn: str) -> int:
     """The manufacturer part (company + MPN) for this part, created if missing."""
     mfr = _company(inv, manufacturer, is_manufacturer=True)
@@ -71,12 +101,7 @@ def enrich_part(inv, part_id: int, product: dict, supplier: str = "Digi-Key", va
         inv.patch(f"part/{part_id}/", **upd)
 
     if not part.get("image") and product.get("PhotoUrl"):
-        try:
-            img = requests.get(product["PhotoUrl"], timeout=20, headers={"User-Agent": "Mozilla/5.0"})
-            img.raise_for_status()
-            inv.patch_file(f"part/{part_id}/", "image", f"{mpn}.jpg", img.content)
-        except (requests.RequestException, RuntimeError):
-            pass  # picture is a nicety
+        set_image(inv, part_id, mpn, product["PhotoUrl"])
 
     mp_id = ensure_manufacturer_part(inv, part_id, product["Manufacturer"]["Name"], mpn)
 

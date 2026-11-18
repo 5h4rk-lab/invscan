@@ -268,3 +268,39 @@ def test_add_room_does_not_duplicate_a_place_already_named_after_the_room():
     t = FakeTree([{"pk": 1, "name": "127", "parent": None}, {"pk": 2, "name": "Cabinet #3", "parent": 1}, {"pk": 3, "name": "Drawer 1", "parent": 2}])
     assert add_room(t, 3, "127")["path"] == "Room 127/Cabinet #3/Drawer 1"
     assert len([r for r in t.rows.values() if r["parent"] is None]) == 1
+
+
+def test_a_bot_check_page_is_never_stored_as_a_picture(monkeypatch):
+    import invscan.enrich as en
+
+    class R:
+        def __init__(self, body, ok=True):
+            self.content, self.ok = body, ok
+    monkeypatch.setattr(en.requests, "get", lambda *a, **k: R(b"\r\n\r\n<!DOCTYPE html><html>checking your browser"))
+    assert en.fetch_image("https://www.mouser.com/images/x.jpg") is None
+    monkeypatch.setattr(en.requests, "get", lambda *a, **k: R(b"\xff\xd8\xff\xe0jpegdata"))
+    assert en.fetch_image("https://x/y.jpg") == (b"\xff\xd8\xff\xe0jpegdata", "jpg")
+    monkeypatch.setattr(en.requests, "get", lambda *a, **k: R(b"", ok=False))
+    assert en.fetch_image("https://x/y.jpg") is None and en.fetch_image("") is None
+
+
+def test_mouser_part_gets_digikeys_photo_when_mouser_will_not_hand_over_its_own(monkeypatch):
+    import invscan.ingest as ing
+
+    saved = []
+    monkeypatch.setattr(ing, "set_image", lambda inv, pid, name, url: saved.append((name, url)) or True)
+
+    class M:
+        enabled = True
+
+        def lookup(self, pn):
+            return {"ManufacturerProductNumber": "RL81C221MDN1KX", "Manufacturer": {"Name": "Nichicon"}, "Description": {"ProductDescription": "CAP"},
+                    "PhotoUrl": "https://www.mouser.com/images/blocked.jpg", "ProductVariations": []}
+
+    dk = FakeDK(product={"PhotoUrl": "https://mm.digikey.com/pic.jpg", "ManufacturerProductNumber": "RL81C221MDN1KX", "Manufacturer": {"Name": "Nichicon"}})
+    scan = parse_scan("[)>\x1e06\x1dK77777777\x1d14K011\x1dPC29\x1dQ10\x1d11K88888888\x1d4LCN\x1d1VNichicon")
+    scan.supplier_sku = "647-RL81C221MDN1KX"
+    monkeypatch.setattr(ing, "enrich_part", lambda *a, **k: {"supplier_parts": {}, "manufacturer_part": 1})
+    r = ing.ingest(Fake(), scan, 1, dk=dk, mouser=M())
+    assert r.status == "created" and saved == [("RL81C221MDN1KX", "https://mm.digikey.com/pic.jpg")]
+    assert dk.asked == [("RL81C221MDN1KX", None)]  # asked for the same manufacturer part, no DigiKey number
