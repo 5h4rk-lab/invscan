@@ -13,9 +13,10 @@ function askPin() {
     <input class="field" name="pin" type="password" autocomplete="current-password" required autofocus>
     <button class="btn primary" type="submit">Unlock</button>`, f => { res(f.get("pin")); }, () => res(null)));
 }
-async function api(path, body, retry = true) {
-  const r = await fetch(path, body ? { method: "POST", headers: { "Content-Type": "application/json", "X-Pin": state.pin }, body: JSON.stringify(body) } : { headers: { "X-Pin": state.pin } });
-  if (r.status === 401 && retry) { const p = await askPin(); if (p) { setPin(p); return api(path, body, false); } }
+async function api(path, body, retry = true, method) {
+  const hdr = { "Content-Type": "application/json", "X-Pin": state.pin };
+  const r = await fetch(path, method ? { method, headers: hdr, body: body ? JSON.stringify(body) : undefined } : body ? { method: "POST", headers: hdr, body: JSON.stringify(body) } : { headers: { "X-Pin": state.pin } });
+  if (r.status === 401 && retry) { const p = await askPin(); if (p) { setPin(p); return api(path, body, false, method); } }
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(typeof j.detail === "string" ? j.detail : "Request failed (" + r.status + ")");
   return j;
@@ -55,7 +56,7 @@ function qtySheet(id, name, val, after) {
   $("#sheetForm").querySelectorAll("[data-d]").forEach(b => b.onclick = () => { i.value = Math.max(0, (+i.value || 0) + +b.dataset.d); });
   i.select();
 }
-function refresh() { state.view === "places" ? loadPlaces() : state.view === "loc" ? loadLoc(state.locId) : state.view === "find" ? runFind() : state.view === "home" ? loadHome() : state.view === "part" ? loadPart(state.partId) : state.view === "cat" ? loadCat(state.catId) : 0; }
+function refresh() { state.view === "builds" ? loadBuilds() : state.view === "build" ? loadBuild(state.partId) : state.view === "order" ? loadOrder() : state.view === "places" ? loadPlaces() : state.view === "loc" ? loadLoc(state.locId) : state.view === "find" ? runFind() : state.view === "home" ? loadHome() : state.view === "part" ? loadPart(state.partId) : state.view === "cat" ? loadCat(state.catId) : 0; }
 document.addEventListener("click", e => {
   const b = e.target.closest("[data-qty]"); if (!b) return;
   qtySheet(+b.dataset.id, b.dataset.name, b.dataset.val, b.dataset.after ? r => { b.textContent = r.qty; b.dataset.val = r.qty; } : null);
@@ -940,7 +941,7 @@ async function loadPart(id) {
      <div class="facts"><div><small>In stock</small><b>${esc(d.total)}</b></div><div><small>Last scanned</small><b>${esc(d.last_scanned || "never")}</b></div><div><small>Category</small><b>${d.category_id ? `<a href="#cat/${d.category_id}" style="color:inherit">${esc(d.category.split("/").pop())}</a>` : "none"}</b></div></div>
      <div class="actions2"><button class="btn primary" id="printPart">Print part label</button><button class="btn" id="photoPart">${d.image ? "Change photo" : "Add photo"}</button></div>
      <input id="photoFile" type="file" accept="image/*" capture="environment" hidden>
-     <div class="linkrow"><button class="btn quiet sm" id="editPart">Edit name and description</button>${safeUrl(d.link) ? `<a class="btn quiet sm" href="${esc(d.link)}" target="_blank" rel="noopener noreferrer">Datasheet</a>` : ""}<a class="btn quiet sm" href="${esc(d.inventree_url)}" target="_blank" rel="noopener noreferrer">Open in InvenTree</a></div>
+     <div class="linkrow"><button class="btn quiet sm" id="addOrder">Add to order list</button><button class="btn quiet sm" id="editPart">Edit name and description</button>${safeUrl(d.link) ? `<a class="btn quiet sm" href="${esc(d.link)}" target="_blank" rel="noopener noreferrer">Datasheet</a>` : ""}<a class="btn quiet sm" href="${esc(d.inventree_url)}" target="_blank" rel="noopener noreferrer">Open in InvenTree</a></div>
      ${d.template ? `<p class="sm muted" style="margin-top:10px">A configuration of <a href="#part/${d.template.id}">${esc(d.template.name)}</a></p>` : ""}
      ${d.variants.length ? `<h2>Configurations <small>${d.variants.length}</small></h2><div class="list">${d.variants.map(v => `<a class="line" href="#part/${v.id}" style="display:flex;justify-content:space-between;text-decoration:none;color:inherit"><b>${esc(v.name.slice(d.name.length).trim() || v.name)}</b><span class="muted">${esc(v.stock)} in stock</span></a>`).join("")}</div>` : ""}
      <h2>Where it is <small>${d.stock.length} ${d.stock.length === 1 ? "line" : "lines"}</small></h2>
@@ -951,6 +952,7 @@ async function loadPart(id) {
      ${d.manufacturers.length || dk ? `<h2>Part details</h2><div class="list"><table class="kv">${d.manufacturers.map(m => `<tr><td>Manufacturer</td><td>${esc(m.name)}</td></tr><tr><td>Manufacturer part no.</td><td class="mono">${esc(m.mpn)}</td></tr>`).join("")}${dk}</table></div>` : ""}
      ${d.params.length ? `<h2>Specifications <small>${d.params.length}</small></h2><div class="list"><table class="kv">${d.params.map(x => `<tr><td>${esc(x.name)}</td><td>${esc(x.value)}</td></tr>`).join("")}</table></div>` : ""}`;
     $("#back").onclick = goBack;
+    $("#addOrder").onclick = () => orderSheet(id, d.name);
     $("#editPart").onclick = async () => {
       try { await loadCats(); } catch { /* the picker is optional */ }
       openSheet(`<h3>Edit item</h3>
@@ -999,20 +1001,155 @@ async function loadLoc(id) {
   } catch (e) { box.innerHTML = `<button class="back" id="back">Back</button><div class="card">Could not load this place: ${esc(e.message)}</div>`; $("#back").onclick = goBack; }
 }
 
+/* ---------- builds: upload a BOM, see whether the parts on hand are enough, order what is missing ---------- */
+const fmtN = n => Number.isInteger(+n) ? String(+n) : String(+(+n).toFixed(2));
+function orderSheet(partId, name, qty = 10, note = "") {
+  openSheet(`<h3>Add to the next DigiKey order</h3><p class="mono sm">${esc(name)}</p>
+    <label>Quantity<input class="field" name="qty" type="number" inputmode="numeric" min="1" required value="${esc(qty)}" autofocus></label>
+    <label>What is it for? (optional)<input class="field" name="note" placeholder="Little Foot rev F" value="${esc(note)}" autocomplete="off"></label>
+    <button class="btn primary" type="submit">Add to list</button>`,
+    async f => { await addToOrder([{ part_id: partId, qty: +f.get("qty") }], (f.get("note") || "").trim(), name); });
+}
+async function addToOrder(items, note = "", label = "") {
+  try {
+    const r = await api("/api/order/add", { items, note: note || null });
+    if (r.failed.length) toast(r.failed[0].reason);
+    if (r.added.length) {
+      toast(r.added.length === 1 && label ? `Added ${fmtN(r.added[0].qty)} x ${label} to the order list` : `Added ${r.added.length} ${r.added.length === 1 ? "part" : "parts"} to the order list`);
+      return r;
+    }
+  } catch (e) { toast(e.message); }
+  return null;
+}
+async function loadBuilds() {
+  const box = $("#buildsBody");
+  box.innerHTML = `<div class="findhead"><h1>Builds</h1></div>${SKEL_ROWS(2)}`;
+  let builds = [], order = { lines: [] };
+  try { [builds, order] = await Promise.all([api("/api/builds"), api("/api/order")]); } catch (e) { box.innerHTML = `<div class="findhead"><h1>Builds</h1></div><div class="card">${esc(e.message)}</div>`; return; }
+  const n = order.lines.length;
+  box.innerHTML = `<div class="findhead"><h1>Builds</h1><span class="muted sm">${builds.length} ${builds.length === 1 ? "build" : "builds"}</span></div>
+    <p class="muted sm" style="margin-bottom:12px">Upload a BOM (KiCad, Excel or Sheets) to see whether you have the parts to build it, and add what is missing to the next DigiKey order.</p>
+    <div class="actions" style="margin:0 0 16px"><button class="btn primary" type="button" id="bomUp"><svg viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M5 20h14"/></svg>Upload a BOM</button></div>
+    <a class="ordercard" href="#order"><span><b>Next DigiKey order</b><small>${n ? `${n} ${n === 1 ? "part" : "parts"} waiting` : "Nothing on the list yet"}</small></span><span class="btn sm">${n ? "Open list" : "Open"}</span></a>
+    <h2>Your builds <small>${builds.length}</small></h2>
+    ${builds.length ? `<div class="list">${builds.map(b => `<a class="row frow" href="#build/${b.id}"><div class="body"><div class="name">${esc(b.name)}</div><div class="desc">${b.lines} ${b.lines === 1 ? "part" : "parts"} in the BOM</div></div>
+      <div class="qty">${b.missing ? `<span class="stchip s-short">${b.missing} short</span>` : `<span class="stchip s-ok">Can build ${esc(b.can_build)}</span>`}</div></a>`).join("")}</div>`
+      : `<div class="list"><div class="empty-state">No builds yet. Upload a BOM and name it, for example "Little Foot rev F".</div></div>`}`;
+  $("#bomUp").onclick = () => { const inp = document.createElement("input"); inp.type = "file"; inp.accept = ".xlsx,.xlsm,.csv,.tsv,.txt"; inp.onchange = () => inp.files[0] && uploadBom(inp.files[0]); inp.click(); };
+}
+async function uploadBom(file) {
+  openSheet(`<h3>Reading the BOM</h3><p class="muted sm" id="bomMsg">Reading ${esc(file.name)} and matching it to your parts...</p><div class="bar"><i style="width:60%"></i></div>`, null, () => {});
+  let r;
+  try {
+    const res = await fetch("/api/builds/parse?filename=" + encodeURIComponent(file.name), { method: "POST", headers: { "X-Pin": state.pin, "Content-Type": "application/octet-stream" }, body: file });
+    const j = await res.json().catch(() => ({})); if (!res.ok) throw new Error(j.detail || "Could not read that file");
+    r = j;
+  } catch (e) { $("#sheet").close(); toast(e.message); return; }
+  $("#sheet").close(); await new Promise(x => setTimeout(x, 60));
+  bomSheet(r);
+}
+function bomRow(l, i) {
+  const id = l.mpn || l.value || l.dk_pn, refs = l.refs.slice(0, 4).join(", ") + (l.refs.length > 4 ? ` +${l.refs.length - 4}` : "");
+  const head = `<div class="bh"><b>x${fmtN(l.qty)}</b><span class="mono">${esc(id)}</span><small>${esc(refs)}${l.footprint ? " " + esc(l.footprint) : ""}</small></div>`;
+  if (l.part_id) return `<div class="bl ok" data-i="${i}">${head}<div class="bm"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>${esc(l.part_name)}</span><small>${esc(l.how)}</small></div>
+    <select class="field sm" name="sel${i}" aria-label="Part for ${esc(id)}"><option value="part:${l.part_id}">Use ${esc(l.part_name)}</option><option value="skip">Leave this line out</option></select></div>`;
+  const create = l.mpn || l.dk_pn || (l.value && /[A-Za-z]/.test(l.value) && /\d/.test(l.value) && l.value.length > 5);
+  return `<div class="bl no" data-i="${i}">${head}<div class="bm warn"><span>Not in your inventory</span></div>
+    <select class="field sm" name="sel${i}" aria-label="Part for ${esc(id)}"><option value="skip">Leave this line out</option>${l.candidates.map(c => `<option value="part:${c.id}">Use ${esc(c.name)}</option>`).join("")}${create ? `<option value="create" ${l.mpn || l.dk_pn ? "selected" : ""}>Create it from DigiKey: ${esc(l.mpn || l.dk_pn || l.value)}</option>` : ""}</select>
+    <input class="field sm" type="search" data-find="${i}" placeholder="Find a part of yours..." autocomplete="off"></div>`;
+}
+function bomSheet(r) {
+  const matched = r.lines.filter(l => l.part_id).length;
+  openSheet(`<h3>Check the BOM</h3>
+    <label>Build name<input class="field" name="name" value="${esc(r.name)}" placeholder="Little Foot rev F" required autocomplete="off"></label>
+    <p class="muted sm"><b>${matched}</b> of ${r.lines.length} lines are parts you already have.${r.skipped ? ` ${r.skipped} do-not-populate ${r.skipped === 1 ? "row was" : "rows were"} left out.` : ""} For the rest, choose a part of yours, or create it from its part number.</p>
+    ${r.warnings.length ? `<p class="sm" style="color:var(--warn)">${r.warnings.map(esc).join("<br>")}</p>` : ""}
+    <div class="bomlist">${r.lines.map(bomRow).join("")}</div>
+    <p class="sm muted" id="bomLeft"></p>
+    <button class="btn primary" type="submit">Create build</button>`,
+    async f => {
+      const lines = r.lines.map((l, i) => {
+        const v = f.get("sel" + i), base = { qty: l.qty, refs: l.refs, value: l.value, footprint: l.footprint, mpn: l.mpn || (l.dk_pn ? "" : l.value), dk_pn: l.dk_pn, maker: l.maker, desc: l.desc };
+        return v === "skip" ? { skip: true, qty: l.qty } : v === "create" ? { ...base, create: true } : { ...base, part_id: +v.slice(5) };
+      });
+      toast("Creating the build...");
+      try { const b = await api("/api/builds", { name: f.get("name"), lines }); toast(`Created ${b.name}` + (b.created_parts.length ? `, with ${b.created_parts.length} new ${b.created_parts.length === 1 ? "part" : "parts"}` : "")); location.hash = "#build/" + b.id; }
+      catch (e) { toast(e.message); setTimeout(() => bomSheet({ ...r, name: f.get("name") }), 60); }
+    });
+  const left = () => { const n = [...document.querySelectorAll("#sheetForm select[name^=sel]")].filter(x => x.value === "skip").length; $("#bomLeft").textContent = n ? `${n} ${n === 1 ? "line is" : "lines are"} being left out of the build.` : ""; };
+  document.querySelectorAll("#sheetForm select[name^=sel]").forEach(x => x.onchange = left); left();
+  document.querySelectorAll("#sheetForm [data-find]").forEach(inp => inp.onkeydown = async e => {  // search your own parts for this line
+    if (e.key !== "Enter") return; e.preventDefault();
+    const sel = $(`#sheetForm [name=sel${inp.dataset.find}]`);
+    try { const res = await api("/api/find?q=" + encodeURIComponent(inp.value.trim()));
+      res.slice(0, 6).reverse().forEach(p => { if (![...sel.options].some(o => o.value === "part:" + p.id)) sel.insertBefore(new Option("Use " + p.name, "part:" + p.id), sel.options[1]); });
+      if (res.length) sel.value = "part:" + res[0].id; else toast("Nothing matches that"); left();
+    } catch (x) { toast(x.message); }
+  });
+}
+let buildN = {};
+async function loadBuild(id) {
+  const box = $("#buildBody"), n = buildN[id] || 1;
+  box.innerHTML = `<button class="back" id="back"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>Back</button>${SKEL_ROWS(3)}`; $("#back").onclick = goBack;
+  try {
+    const d = await api(`/api/builds/${id}?n=${n}`), short = d.lines.filter(l => l.status === "short");
+    box.innerHTML = `<button class="back" id="back"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>Back</button>
+      <div class="findhead"><h1 style="font-size:28px">${esc(d.name)}</h1><span class="muted sm">${d.lines.length} ${d.lines.length === 1 ? "part" : "parts"}</span></div>
+      <div class="stepline"><span>Boards to build</span><div class="stepper sm"><button class="btn sm" type="button" id="nMinus" aria-label="Fewer">&minus;</button><input class="field sm" id="nBoards" type="number" inputmode="numeric" min="1" value="${n}"><button class="btn sm" type="button" id="nPlus" aria-label="More">+</button></div></div>
+      <div class="sumcard ${d.complete ? "ok" : short.length ? "short" : "ordered"}"><b>${d.complete ? `You have the parts for ${n} ${n === 1 ? "board" : "boards"}` : short.length ? `Missing parts for ${n} ${n === 1 ? "board" : "boards"}` : "Covered once the order arrives"}</b>
+        <small>${d.complete ? `What is on hand makes up to ${d.can_build} ${d.can_build === 1 ? "board" : "boards"}.` : `${short.length} ${short.length === 1 ? "part is" : "parts are"} short${d.lines.some(l => l.status === "ordered") ? `, ${d.lines.filter(l => l.status === "ordered").length} already on an order` : ""}. What is on hand makes ${d.can_build} ${d.can_build === 1 ? "board" : "boards"}.`}</small>
+        ${short.length ? `<button class="btn primary" type="button" id="orderAll">Add ${short.length === 1 ? "the missing part" : `all ${short.length} missing parts`} to the order list</button>` : ""}</div>
+      <div class="list">${d.lines.map(l => `<div class="row bline"><a href="#part/${l.part_id}" class="thumb-link">${img(l.thumbnail, l.name)}</a><div class="body"><div class="name"><a class="nm" href="#part/${l.part_id}">${esc(l.name)}</a></div>
+        <div class="desc">${esc(l.refs || "")}${l.note ? ` ${esc(l.note)}` : ""}</div>
+        <div class="meta sm muted">need <b>${fmtN(l.need)}</b>, have <b>${fmtN(l.have)}</b>${l.on_order ? `, on order <b>${fmtN(l.on_order)}</b>` : ""}</div></div>
+        <div class="qty"><span class="stchip s-${l.status}">${l.status === "ok" ? "In stock" : l.status === "optional" ? "Optional" : l.status === "ordered" ? "On order" : `Short ${fmtN(l.short)}`}</span>
+        ${l.status === "short" || l.status === "ordered" ? `<button class="btn sm" type="button" data-ord="${l.part_id}" data-q="${l.short}" data-n="${esc(l.name)}">Order ${fmtN(l.short || 1)}</button>` : ""}</div></div>`).join("")}</div>`;
+    $("#back").onclick = goBack;
+    const set = v => { buildN[id] = Math.max(1, Math.min(10000, Math.round(+v) || 1)); loadBuild(id); };
+    $("#nMinus").onclick = () => set(n - 1); $("#nPlus").onclick = () => set(n + 1); $("#nBoards").onchange = e => set(e.target.value);
+    const oa = $("#orderAll"); if (oa) oa.onclick = async () => { if (await addToOrder(short.map(l => ({ part_id: l.part_id, qty: Math.ceil(l.short) })), d.name)) loadBuild(id); };
+    box.querySelectorAll("[data-ord]").forEach(b => b.onclick = async () => { if (await addToOrder([{ part_id: +b.dataset.ord, qty: Math.ceil(+b.dataset.q || 1) }], d.name, b.dataset.n)) loadBuild(id); });
+  } catch (e) { box.innerHTML = `<button class="back" id="back">Back</button><div class="card">Could not load this build: ${esc(e.message)}</div>`; $("#back").onclick = goBack; }
+}
+async function loadOrder() {
+  const box = $("#orderBody");
+  box.innerHTML = `<button class="back" id="back"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>Back</button>${SKEL_ROWS(2)}`; $("#back").onclick = goBack;
+  try {
+    const d = await api("/api/order"), total = d.lines.reduce((n, l) => n + l.qty, 0);
+    box.innerHTML = `<button class="back" id="back"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>Back</button>
+      <div class="findhead"><h1 style="font-size:28px">Next DigiKey order</h1><span class="muted sm">${d.lines.length} ${d.lines.length === 1 ? "part" : "parts"}${d.lines.length ? `, ${fmtN(total)} pieces` : ""}</span></div>
+      ${d.lines.length ? `<div class="actions2"><a class="btn primary" href="/api/order/export?fmt=xlsx" download>Download Excel</a><a class="btn" href="/api/order/export?fmt=csv" download>Download CSV</a></div>
+        <p class="muted sm" style="margin:8px 0 0">DigiKey: Upload a List, then choose this file. Quantity and part number are what it reads.</p>
+        <div class="list" style="margin-top:14px">${d.lines.map(l => `<div class="row"><div class="body"><div class="name">${l.part_id ? `<a class="nm" href="#part/${l.part_id}">${esc(l.name || l.mpn)}</a>` : esc(l.name || l.mpn)}</div>
+          <div class="desc mono">${esc(l.sku)}</div>${l.note ? `<div class="desc">${esc(l.note)}</div>` : ""}</div>
+          <div class="qty"><button class="qbtn" type="button" data-q="${l.id}" data-v="${l.qty}" aria-label="Edit quantity of ${esc(l.name)}">${fmtN(l.qty)}</button><button class="btn quiet sm" type="button" data-rm="${l.id}" aria-label="Remove ${esc(l.name)}">Remove</button></div></div>`).join("")}</div>
+        <div class="actions2" style="margin-top:16px"><button class="btn" type="button" id="ordered">Mark as ordered</button></div>
+        <p class="muted sm">When you have placed the order with DigiKey, mark it as ordered so the next part you add starts a new list.</p>`
+      : `<div class="list"><div class="empty-state">Nothing on the list yet. Add a part from its page, or add what a build is missing.</div></div>`}`;
+    $("#back").onclick = goBack;
+    box.querySelectorAll("[data-q]").forEach(b => b.onclick = () => openSheet(`<h3>Quantity</h3><div class="stepper"><input class="field" name="q" type="number" inputmode="numeric" min="1" value="${esc(b.dataset.v)}" autofocus></div><button class="btn primary" type="submit">Save</button>`,
+      async f => { try { await api(`/api/order/line/${b.dataset.q}`, { qty: +f.get("q") }, true, "PATCH"); loadOrder(); } catch (e) { toast(e.message); } }));
+    box.querySelectorAll("[data-rm]").forEach(b => b.onclick = async () => { try { await api(`/api/order/line/${b.dataset.rm}`, null, true, "DELETE"); loadOrder(); } catch (e) { toast(e.message); } });
+    const od = $("#ordered"); if (od) od.onclick = () => openSheet(`<h3>Mark as ordered?</h3><p class="sm">Use this after you have placed the order with DigiKey. The list closes, and the next part you add starts a new one.</p><button class="btn primary" type="submit">Yes, it is ordered</button>`,
+      async () => { try { await api("/api/order/issue", {}); toast("Order list closed"); loadOrder(); } catch (e) { toast(e.message); } });
+  } catch (e) { box.innerHTML = `<button class="back" id="back">Back</button><div class="card">Could not load the list: ${esc(e.message)}</div>`; $("#back").onclick = goBack; }
+}
+
 /* ---------- router ---------- */
 function route() {
   const h = location.hash.slice(1); let v = "home", arg = null;
   if (h.startsWith("part/") && +h.slice(5)) { v = "part"; arg = +h.slice(5); }
   else if (h.startsWith("cat/") && +h.slice(4)) { v = "cat"; arg = +h.slice(4); }
   else if (h.startsWith("loc/") && +h.slice(4)) { v = "loc"; arg = +h.slice(4); }
-  else if (["home", "scan", "find", "places"].includes(h)) v = h;
+  else if (h.startsWith("build/") && +h.slice(6)) { v = "build"; arg = +h.slice(6); }
+  else if (["home", "scan", "find", "places", "builds", "order"].includes(h)) v = h;
   const key = v + ":" + (arg ?? ""); if (key === state.key) return;
   state.key = key; state.view = v; state.partId = arg; state.catId = arg; state.locId = arg;
   if (v === "cat" && state.cat.id !== arg) state.cat = { id: arg, q: "", sort: "relevance", f: {} };
-  for (const n of ["home", "scan", "find", "places", "part", "cat", "loc"]) {
+  for (const n of ["home", "scan", "find", "places", "builds", "build", "order", "part", "cat", "loc"]) {
     const s = $("#v-" + n); s.hidden = n !== v; if (n === v) { s.classList.remove("in"); void s.offsetWidth; s.classList.add("in"); }
   }
-  document.querySelectorAll(".tabs a").forEach(a => a.dataset.v === (v === "cat" ? "find" : v === "loc" ? "places" : v) ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"));
+  document.querySelectorAll(".tabs a").forEach(a => a.dataset.v === (v === "cat" ? "find" : v === "loc" ? "places" : v === "build" || v === "order" ? "builds" : v) ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"));
   v === "scan" ? startCam() : stopCam();
   document.body.classList.toggle("has-tree", v === "find" || v === "cat");
   if (v === "find" || v === "cat") (state.cats.length ? Promise.resolve() : loadCats()).then(renderTrees).catch(() => {});
@@ -1022,6 +1159,9 @@ function route() {
   if (v === "part") loadPart(arg);
   if (v === "loc") loadLoc(arg);
   if (v === "places") loadPlaces();
+  if (v === "builds") loadBuilds();
+  if (v === "build") loadBuild(arg);
+  if (v === "order") loadOrder();
   if (v === "cat") loadCat(arg);
   window.scrollTo(0, 0);
 }

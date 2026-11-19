@@ -329,7 +329,7 @@ a.thumb-link,a.thumb-link *{text-decoration:none}
 }
 @media(max-width:420px){
   .hero-panel h1{font-size:25px;max-width:9em} .stats b{font-size:22px} .stats div,.stats a{padding:0 13px}
-  .tabs a{min-width:66px;padding-left:8px;padding-right:8px}
+  .tabs a{min-width:58px;padding-left:6px;padding-right:6px}
 }
 
 /* a part that needs a bin: the action sits inside its row, not in a separate strip */
@@ -435,3 +435,27 @@ a.tag.link{text-decoration:none;color:var(--ink2);transition:border-color .12s,b
 @media(max-width:699px){.fcol{width:190px} .dtable .pcell{min-width:180px} .dtable .pc small{max-width:170px}}
 #catCount{white-space:nowrap}
 .dtable th.num{font:650 12.5px var(--sans);text-align:right}
+
+/* builds and the order list */
+.ordercard{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border:1px solid var(--gold-line);border-radius:var(--r-l);background:var(--gold-soft);color:inherit;text-decoration:none;margin-bottom:8px}
+.ordercard b{display:block;font-size:15px} .ordercard small{color:var(--ink2);font-size:13px}
+.stchip{display:inline-block;font-size:12px;font-weight:650;padding:3px 10px;border-radius:99px;white-space:nowrap}
+.s-ok{background:color-mix(in srgb,var(--ok) 16%,transparent);color:var(--ok)}
+.s-short{background:color-mix(in srgb,var(--err) 14%,transparent);color:var(--err)}
+.s-ordered{background:var(--gold-soft);color:var(--warn)}
+.s-optional{background:var(--sunk);color:var(--muted)}
+.bline{align-items:flex-start} .bline .qty{display:grid;gap:6px;justify-items:end}
+.bline .meta{margin-top:3px}
+.stepline{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:10px 0 12px;font-weight:600;font-size:14.5px}
+.stepper.sm{align-items:center;gap:6px} .stepper.sm .field{width:76px;text-align:center;font:600 16px var(--mono);min-height:36px;padding:4px} .stepper.sm .btn{width:36px;min-height:36px;padding:0;font-size:20px}
+.sumcard{display:grid;gap:4px;padding:14px 16px;border-radius:var(--r-l);border:1px solid var(--line);margin-bottom:14px;box-shadow:var(--sh-1)}
+.sumcard small{color:var(--ink2);font-size:13.5px} .sumcard .btn{margin-top:10px;justify-self:start}
+.sumcard.ok{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 9%,var(--surface))} .sumcard.short{border-color:var(--err);background:color-mix(in srgb,var(--err) 8%,var(--surface))} .sumcard.ordered{border-color:var(--gold-line);background:var(--gold-soft)}
+.bomlist{display:grid;gap:10px;max-height:46dvh;overflow:auto;padding:2px}
+.bl{display:grid;gap:6px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-m);background:var(--raise)}
+.bl.no{border-color:var(--gold-line);background:var(--gold-soft)}
+.bh{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap} .bh b{font:600 13px var(--mono)} .bh small{color:var(--muted);font-size:12px}
+.bm{display:flex;align-items:center;gap:7px;font-size:13.5px;font-weight:550} .bm svg{width:16px;height:16px;stroke:var(--ok);fill:none;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.bm small{color:var(--muted);font-weight:450} .bm.warn{color:var(--warn)}
+.bl select.field,.bl input.field{width:100%}
+@media(max-width:420px){.tabs a{font-size:11.5px}}

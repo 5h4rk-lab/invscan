@@ -1,6 +1,7 @@
 import hmac
 import io
 import os
+import re
 import time
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from .bom import BomError, build_status, create_build, list_builds, match_lines, parse_bom
 from .browse import browse as browse_parts, param_index
 from .browse import invalidate as invalidate_index
 from .categories import list_categories
@@ -20,6 +22,7 @@ from .ingest import add_manual, elsewhere, find_part, ingest
 from .locations import LABEL_PREFIX, add_room, ensure_path, has_room, location_contents, parse_label, place_path
 from .notes import get_note, set_note
 from .ocr import extract, find_parts
+from .orders import OrderError, add_items, export_file, list_lines, mark_ordered, remove_line, set_quantity
 from .organise import organise
 from .parser import ScanError, parse_scan
 from .supplies import KINDS, add_power_supply, models as supply_models
@@ -158,6 +161,20 @@ class OcrIn(BaseModel):
     term: str | None = None  # a search the person typed, instead of what was read from the label
 
 
+class BuildIn(BaseModel):
+    name: str
+    lines: list[dict]
+
+
+class OrderAddIn(BaseModel):
+    items: list[dict]  # [{part_id, qty}]
+    note: str | None = None
+
+
+class LineQtyIn(BaseModel):
+    qty: float
+
+
 class PlaceIn(BaseModel):
     path: str | None = None
     note: str | None = None
@@ -223,6 +240,79 @@ def home():
             out["unplaced"].append({**_where(s), "part_id": s["part"], "name": s["part_detail"]["name"],
                                     "thumbnail": s["part_detail"].get("thumbnail")})
     return out
+
+
+# ---------- builds: a BOM, and whether the parts on hand are enough ----------
+@app.post("/api/builds/parse", dependencies=[Depends(auth)])
+async def builds_parse(request: Request, filename: str = ""):
+    """Read an uploaded BOM (.xlsx or .csv, raw body) and match its lines to your parts. Nothing is saved."""
+    data = await request.body()
+    if not data or len(data) > 4_000_000:
+        raise HTTPException(413, "the file is empty or too large")
+    try:
+        parsed = parse_bom(data, filename)
+        lines = match_lines(inv(), parsed["lines"])
+    except BomError as e:
+        raise HTTPException(422, str(e))
+    base = re.sub(r"\.[A-Za-z0-9]+$", "", filename or "").replace("_", " ").replace("-", " ").strip()
+    return {**parsed, "lines": lines, "name": base}
+
+
+@app.post("/api/builds", dependencies=[Depends(auth)])
+def builds_create(body: BuildIn):
+    try:
+        return create_build(inv(), dk(), body.name, body.lines)
+    except BomError as e:
+        raise HTTPException(422, str(e))
+
+
+@app.get("/api/builds", dependencies=[Depends(auth)])
+def builds_list():
+    return list_builds(inv())
+
+
+@app.get("/api/builds/{pk}", dependencies=[Depends(auth)])
+def builds_one(pk: int, n: int = 1):
+    return build_status(inv(), pk, max(1, min(n, 10000)))
+
+
+# ---------- the next DigiKey order ----------
+@app.post("/api/order/add", dependencies=[Depends(auth)])
+def order_add(body: OrderAddIn):
+    return add_items(inv(), dk(), body.items, body.note or "")
+
+
+@app.get("/api/order", dependencies=[Depends(auth)])
+def order_get():
+    return list_lines(inv())
+
+
+@app.patch("/api/order/line/{pk}", dependencies=[Depends(auth)])
+def order_qty(pk: int, body: LineQtyIn):
+    if body.qty <= 0:
+        raise HTTPException(422, "quantity must be more than zero")
+    set_quantity(inv(), pk, body.qty)
+    return {"ok": True}
+
+
+@app.delete("/api/order/line/{pk}", dependencies=[Depends(auth)])
+def order_remove(pk: int):
+    remove_line(inv(), pk)
+    return {"ok": True}
+
+
+@app.get("/api/order/export", dependencies=[Depends(auth)])
+def order_export(fmt: str = "xlsx"):
+    data, mime, name = export_file(inv(), "csv" if fmt == "csv" else "xlsx")
+    return Response(data, media_type=mime, headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+@app.post("/api/order/issue", dependencies=[Depends(auth)])
+def order_issue():
+    try:
+        return mark_ordered(inv())
+    except OrderError as e:
+        raise HTTPException(422, str(e))
 
 
 @app.get("/api/places", dependencies=[Depends(auth)])

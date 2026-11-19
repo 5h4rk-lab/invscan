@@ -213,6 +213,62 @@ def printing():
     return {"templates": {"location": [], "stockitem": [], "part": []}, "printers": []}
 
 
+# ---------- builds and the order list (sample data) ----------
+BUILD_BOM = {101: ("Little Foot rev F", [(1, 1, "U1"), (4, 4, "R1-R4"), (7, 2, "D1, D2"), (6, 6, "C1-C6"), (3, 1, "U2"), (9, 1, "PS1")]),
+             102: ("Hover Toy rev B", [(4, 2, "R1, R2"), (7, 1, "D1")])}
+ON_ORDER = {3: 20}
+ORDER = [{"id": 1, "sku": "P15BQCT-ND", "mpn": "ERA-8AHD150V", "part_id": 4, "name": "ERA-8AHD150V", "qty": 25.0, "note": "Little Foot rev F"},
+         {"id": 2, "sku": "493-RL81C221MDN1KXCT-ND", "mpn": "RL81C221MDN1KX", "part_id": 6, "name": "RL81C221MDN1KX", "qty": 12.0, "note": "Little Foot rev F, Hover Toy"}]
+
+
+def build_status(pk: int, n: int = 1):
+    name, rows = BUILD_BOM[pk]
+    lines = []
+    for i, (pid, per, refs) in enumerate(rows):
+        have, ordered = float(total(pid)), float(ON_ORDER.get(pid, 0))
+        need = per * n
+        short = max(0.0, need - have)
+        lines.append({"bom_id": i, "part_id": pid, "name": PARTS[pid][0], "description": PARTS[pid][1], "thumbnail": thumb(pid), "refs": refs, "note": "",
+                      "per": per, "need": need, "have": have, "on_order": ordered, "short": short, "optional": False,
+                      "status": "ok" if short <= 0 else ("ordered" if ordered >= short else "short")})
+    lines.sort(key=lambda l: ({"short": 0, "ordered": 1, "ok": 2}[l["status"]], l["name"]))
+    can = min(int(l["have"] // l["per"]) for l in lines)
+    miss = [l for l in lines if l["status"] != "ok"]
+    return {"id": pk, "name": name, "description": "", "n": n, "lines": lines, "can_build": can, "complete": not miss, "missing": len(miss),
+            "short": sum(1 for l in lines if l["status"] == "short")}
+
+
+@app.get("/api/builds")
+def builds():
+    return [{"id": k, "name": b["name"], "lines": len(b["lines"]), "can_build": b["can_build"], "missing": b["missing"]} for k in BUILD_BOM for b in [build_status(k)]]
+
+
+@app.get("/api/builds/{pk}")
+def build_one(pk: int, n: int = 1):
+    return build_status(pk, n)
+
+
+@app.post("/api/builds/parse")
+async def builds_parse(request: Request, filename: str = ""):
+    ln = lambda row, qty, refs, mpn, value, pid=None, pname="", how="": {"row": row, "qty": qty, "refs": refs, "mpn": mpn, "dk_pn": "", "maker": "", "value": value, "footprint": "R_0603",
+                                                                       "desc": "", "part_id": pid, "how": how, "part_name": pname, "thumbnail": None, "candidates": []}
+    lines = [ln(2, 1, ["U1"], "", "MC9S08PA60AVLF", 1, "MC9S08PA60AVLF", "value"), ln(3, 4, ["R1", "R2", "R3", "R4"], "", "15", 4, "ERA-8AHD150V", "value"),
+             {**ln(4, 3, ["C1", "C2", "C3"], "", "100nF"), "candidates": [{"id": 6, "name": "RL81C221MDN1KX", "description": ""}]},
+             ln(5, 1, ["U3"], "TPS62130RGTR", "TPS62130"), ln(6, 2, ["J1", "J2"], "", "Conn_01x04")]
+    return {"lines": lines, "skipped": 1, "warnings": [], "name": "Little Foot rev G"}
+
+
+@app.get("/api/order")
+def order_get():
+    return {"id": 1, "reference": "PO-0001", "lines": ORDER}
+
+
+@app.get("/api/order/export")
+def order_export(fmt: str = "xlsx"):
+    rows = ["Quantity,Digi-Key Part Number,Manufacturer Part Number,Description,Customer Reference"] + [f"{int(l['qty'])},{l['sku']},{l['mpn']},{l['name']},{l['note']}" for l in ORDER]
+    return Response("\n".join(rows), media_type="text/csv", headers={"Content-Disposition": 'attachment; filename="digikey-order.csv"'})
+
+
 @app.post("/api/{rest:path}")
 async def anything(rest: str, request: Request):
     return Response('{"detail": "This is the demo: nothing is saved."}', status_code=422, media_type="application/json")

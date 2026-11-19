@@ -10,6 +10,12 @@ It is a small web app that sits next to InvenTree and talks to its API. Nothing 
 
 `python scripts/demo_server.py` serves the real pages with sample data (no InvenTree, DigiKey or PIN needed; nothing is saved), at http://127.0.0.1:8800. Handy for working on the design.
 
+## Builds and the DigiKey order list
+
+**Builds** tab: upload a BOM (KiCad's CSV or Excel export, an .xlsx or .csv saved from Excel or Google Sheets) and name it, for example "Little Foot rev F". Columns are found by name (Qty, Reference, Value, MPN, Digi-Key part number, Manufacturer; do-not-populate rows are left out), and each line is matched to a part you have, by Digi-Key number, manufacturer part number, or the Value field. Lines with no match let you pick one of your parts or create it from its part number using DigiKey's details. The build is saved in InvenTree as an assembly with a BOM, so InvenTree's own stock figures drive the check: open a build, choose how many boards, and see per part what you need, have, and have on order, with the parts that are short. **Add the missing parts to the order list** with one button, or add any part from its page.
+
+The order list is a draft DigiKey purchase order in InvenTree, so it is shared and always current. Download it as Excel or CSV (quantity, Digi-Key part number, manufacturer part number, description, and which builds it is for) and use DigiKey's Upload a List. Small quantities pick the cut-tape part number. After placing the order, mark it as ordered and the next part you add starts a fresh list.
+
 ## Browsing like DigiKey
 
 **Find** opens a product index: every category with its sub-categories and part counts, and a box to filter them. A category page has a column of checkbox filters for each spec (with counts, and a search box inside long lists) and a table of the parts with the most common specs as sortable columns, paging, and a CSV download of the filtered table.
